@@ -12,16 +12,18 @@ from src.dataset import make_splits
 from src.metrics import bbox_iou
 from src.model import MobDetector
 
-DATA_DIR     = Path("data")
-CKPT_DIR     = Path("checkpoints")
-BATCH_SIZE   = 32
-EPOCHS       = 50
-LR           = 1e-3
-WEIGHT_DECAY = 1e-4
-NUM_WORKERS  = 4
-BBOX_WEIGHT  = 5.0  # bbox loss is much smaller in magnitude than cls, rebalance
-PATIENCE     = 8    # stop early if val accuracy plateaus to avoid overfitting
-DEVICE       = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DATA_DIR        = Path("data")
+CKPT_DIR        = Path("checkpoints")
+BATCH_SIZE      = 96
+EPOCHS          = 50
+LR              = 1e-3
+WEIGHT_DECAY    = 1e-4
+NUM_WORKERS     = 8
+BBOX_WEIGHT     = 5.0   # bbox loss is much smaller in magnitude than cls, rebalance
+PATIENCE        = 8     # stop early if val accuracy plateaus to avoid overfitting
+WARMUP_EPOCHS   = 5     # freeze backbone, train heads only before full fine-tuning
+BACKBONE_LR_MUL = 0.1  # backbone LR relative to heads after warmup
+DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def train_epoch(
@@ -97,28 +99,58 @@ def main() -> None:
     train_loader: DataLoader[tuple[torch.Tensor, int, torch.Tensor]] = DataLoader(
         train_ds, batch_size=BATCH_SIZE, shuffle=True,
         num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True,
+        prefetch_factor=4,
     )
     val_loader: DataLoader[tuple[torch.Tensor, int, torch.Tensor]] = DataLoader(
         val_ds, batch_size=BATCH_SIZE * 2, shuffle=False,
         num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True,
+        prefetch_factor=4,
     )
 
-    model    = MobDetector(num_classes).to(DEVICE)
+    model = MobDetector(num_classes).to(DEVICE)
     try:
         import triton  # noqa: F401
         compiled: nn.Module = torch.compile(model)  # type: ignore[assignment]
     except ImportError:
         compiled = model
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
-    scaler    = torch.amp.GradScaler()
-    cls_fn    = nn.CrossEntropyLoss()
-    bbox_fn   = nn.SmoothL1Loss()
 
-    best_acc = 0.0
+    cls_fn  = nn.CrossEntropyLoss()
+    bbox_fn = nn.SmoothL1Loss()
+    scaler  = torch.amp.GradScaler()
+
+    # Phase 1 - warmup: freeze backbone, only heads receive gradients
+    for p in model.backbone.parameters():
+        p.requires_grad = False
+    optimizer: torch.optim.Optimizer = torch.optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=LR, weight_decay=WEIGHT_DECAY,
+    )
+    scheduler: torch.optim.lr_scheduler.LRScheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=WARMUP_EPOCHS,
+    )
+    print(f"Phase 1: backbone frozen for {WARMUP_EPOCHS} warmup epochs.")
+
+    best_acc   = 0.0
     no_improve = 0
 
     for epoch in range(1, EPOCHS + 1):
+        if epoch == WARMUP_EPOCHS + 1:
+            # Phase 2 - full fine-tune: backbone at lower LR, heads at full LR
+            for p in model.backbone.parameters():
+                p.requires_grad = True
+            head_params = list(model.cls_head.parameters()) + list(model.bbox_head.parameters())
+            optimizer = torch.optim.AdamW(
+                [
+                    {"params": model.backbone.parameters(), "lr": LR * BACKBONE_LR_MUL},
+                    {"params": head_params, "lr": LR},
+                ],
+                weight_decay=WEIGHT_DECAY,
+            )
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=EPOCHS - WARMUP_EPOCHS,
+            )
+            print(f"Phase 2: backbone unfrozen (lr={LR * BACKBONE_LR_MUL:.1e}), heads lr={LR:.1e}")
+
         t0 = time.perf_counter()
         tr_loss, tr_cls, tr_bbox = train_epoch(compiled, train_loader, optimizer, scaler, cls_fn, bbox_fn)
         val_loss, val_acc, val_iou = eval_epoch(compiled, val_loader, cls_fn, bbox_fn)
