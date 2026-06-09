@@ -20,7 +20,11 @@ class MobDetector(nn.Module):
         self.pool = nn.AdaptiveAvgPool2d(1)   # → (B, 1280, 1, 1)
         self.drop = nn.Dropout(p=dropout)
         self.cls_head = nn.Linear(_FEAT_DIM, num_classes)
-        self.bbox_head = nn.Linear(_FEAT_DIM, 4)
+        self.bbox_head = nn.Sequential(
+            nn.Linear(_FEAT_DIM, 256),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, 4),
+        )
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         feats = self.drop(self.pool(self.backbone(x)).flatten(1))  # (B, 1280)
