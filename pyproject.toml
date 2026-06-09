@@ -1,0 +1,37 @@
+[project]
+name = "deep-learning-project-1"
+version = "0.1.0"
+description = "Minecraft Mob Vision - CV model for mob classification and bounding box prediction"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "torch>=2.12.0",
+    "torchvision>=0.27.0",
+    "pandas>=3.0.3",
+    "pillow>=12.2.0",
+    "numpy>=2.4.6",
+    "tqdm>=4.67.0",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "TCH", "ANN"]
+ignore = ["ANN101", "ANN102"]
+
+[dependency-groups]
+dev = [
+    "pyrefly>=1.0.0",
+    "ruff>=0.11.0",
+]
