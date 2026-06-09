@@ -75,12 +75,10 @@ def main() -> None:
 
     model = MobDetector(len(test_ds.classes)).to(DEVICE)
     model.load_state_dict(torch.load(CKPT, map_location=DEVICE, weights_only=True))
-    compiled = torch.compile(model)
-
     print(f"Checkpoint : {CKPT}")
     print(f"Test set   : {test_ds}")
     print()
-    evaluate(compiled, test_loader, test_ds.classes)  # type: ignore[arg-type]
+    evaluate(model, test_loader, test_ds.classes)
 
 
 if __name__ == "__main__":
