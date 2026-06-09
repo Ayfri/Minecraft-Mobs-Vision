@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.dataset import make_splits
-from src.metrics import bbox_iou
+from src.metrics import bbox_iou, ciou_loss
 from src.model import MobDetector
 
 DATA_DIR        = Path("data")
@@ -18,8 +18,8 @@ BATCH_SIZE      = 96
 EPOCHS          = 50
 LR              = 1e-3
 WEIGHT_DECAY    = 1e-4
-NUM_WORKERS     = 8
-BBOX_WEIGHT     = 5.0   # bbox loss is much smaller in magnitude than cls, rebalance
+NUM_WORKERS     = 4
+BBOX_WEIGHT     = 1.0   # CIoU loss is in [0,~2] range, well-balanced with cls loss
 PATIENCE        = 8     # stop early if val accuracy plateaus to avoid overfitting
 WARMUP_EPOCHS   = 5     # freeze backbone, train heads only before full fine-tuning
 BACKBONE_LR_MUL = 0.1  # backbone LR relative to heads after warmup
@@ -32,19 +32,20 @@ def train_epoch(
     optimizer: torch.optim.Optimizer,
     scaler: torch.amp.GradScaler,
     cls_fn: nn.CrossEntropyLoss,
-    bbox_fn: nn.SmoothL1Loss,
 ) -> tuple[float, float, float]:
     model.train()
     total = cls_sum = bbox_sum = 0.0
 
     for imgs, labels, bboxes in tqdm(loader, desc="train", leave=False):
-        imgs, labels, bboxes = imgs.to(DEVICE), labels.to(DEVICE), bboxes.to(DEVICE)
-        optimizer.zero_grad()
+        imgs   = imgs.to(DEVICE, memory_format=torch.channels_last)
+        labels = labels.to(DEVICE)
+        bboxes = bboxes.to(DEVICE)
+        optimizer.zero_grad(set_to_none=True)
 
         with torch.amp.autocast(device_type="cuda"):
             cls_logits, bbox_pred = model(imgs)
             cls_loss  = cls_fn(cls_logits, labels)
-            bbox_loss = bbox_fn(bbox_pred, bboxes)
+            bbox_loss = ciou_loss(bbox_pred.float(), bboxes.float())
             loss      = cls_loss + BBOX_WEIGHT * bbox_loss
 
         scaler.scale(loss).backward()  # type: ignore[union-attr]
@@ -64,19 +65,20 @@ def eval_epoch(
     model: nn.Module,
     loader: DataLoader[tuple[torch.Tensor, int, torch.Tensor]],
     cls_fn: nn.CrossEntropyLoss,
-    bbox_fn: nn.SmoothL1Loss,
 ) -> tuple[float, float, float]:
     model.eval()
     total = correct = samples = 0
     iou_sum = 0.0
 
     for imgs, labels, bboxes in tqdm(loader, desc="val  ", leave=False):
-        imgs, labels, bboxes = imgs.to(DEVICE), labels.to(DEVICE), bboxes.to(DEVICE)
+        imgs   = imgs.to(DEVICE, memory_format=torch.channels_last)
+        labels = labels.to(DEVICE)
+        bboxes = bboxes.to(DEVICE)
 
         with torch.amp.autocast(device_type="cuda"):
             cls_logits, bbox_pred = model(imgs)
             cls_loss  = cls_fn(cls_logits, labels)
-            bbox_loss = bbox_fn(bbox_pred, bboxes)
+            bbox_loss = ciou_loss(bbox_pred.float(), bboxes.float())
             loss      = cls_loss + BBOX_WEIGHT * bbox_loss
 
         total   += loss.item()
@@ -90,6 +92,8 @@ def eval_epoch(
 
 def main() -> None:
     CKPT_DIR.mkdir(exist_ok=True)
+    torch.backends.cudnn.benchmark = True         # auto-tune conv kernels for fixed input size
+    torch.set_float32_matmul_precision("high")    # TF32 on Ampere/Ada — 2× faster matmuls
     print(f"Device: {DEVICE}")
 
     train_ds, val_ds, _ = make_splits(DATA_DIR)
@@ -99,24 +103,23 @@ def main() -> None:
     train_loader: DataLoader[tuple[torch.Tensor, int, torch.Tensor]] = DataLoader(
         train_ds, batch_size=BATCH_SIZE, shuffle=True,
         num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True,
-        prefetch_factor=4,
+        prefetch_factor=2,
     )
     val_loader: DataLoader[tuple[torch.Tensor, int, torch.Tensor]] = DataLoader(
         val_ds, batch_size=BATCH_SIZE * 2, shuffle=False,
         num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True,
-        prefetch_factor=4,
+        prefetch_factor=2,
     )
 
-    model = MobDetector(num_classes).to(DEVICE)
+    model = MobDetector(num_classes).to(DEVICE, memory_format=torch.channels_last)
     try:
         import triton  # noqa: F401
         compiled: nn.Module = torch.compile(model)  # type: ignore[assignment]
     except ImportError:
         compiled = model
 
-    cls_fn  = nn.CrossEntropyLoss()
-    bbox_fn = nn.SmoothL1Loss()
-    scaler  = torch.amp.GradScaler()
+    cls_fn = nn.CrossEntropyLoss()
+    scaler = torch.amp.GradScaler()
 
     # Phase 1 - warmup: freeze backbone, only heads receive gradients
     for p in model.backbone.parameters():
@@ -130,8 +133,9 @@ def main() -> None:
     )
     print(f"Phase 1: backbone frozen for {WARMUP_EPOCHS} warmup epochs.")
 
-    best_acc   = 0.0
-    no_improve = 0
+    # Combined metric weights acc+iou to drive both tasks toward a good checkpoint
+    best_score = 0.0
+    no_improve  = 0
 
     for epoch in range(1, EPOCHS + 1):
         if epoch == WARMUP_EPOCHS + 1:
@@ -152,8 +156,8 @@ def main() -> None:
             print(f"Phase 2: backbone unfrozen (lr={LR * BACKBONE_LR_MUL:.1e}), heads lr={LR:.1e}")
 
         t0 = time.perf_counter()
-        tr_loss, tr_cls, tr_bbox = train_epoch(compiled, train_loader, optimizer, scaler, cls_fn, bbox_fn)
-        val_loss, val_acc, val_iou = eval_epoch(compiled, val_loader, cls_fn, bbox_fn)
+        tr_loss, tr_cls, tr_bbox = train_epoch(compiled, train_loader, optimizer, scaler, cls_fn)
+        val_loss, val_acc, val_iou = eval_epoch(compiled, val_loader, cls_fn)
         scheduler.step()
 
         print(
@@ -162,11 +166,12 @@ def main() -> None:
             f"val {val_loss:.4f}  acc {val_acc:.3f}  iou {val_iou:.3f}"
         )
 
-        if val_acc > best_acc:
-            best_acc = val_acc
+        score = 0.7 * val_acc + 0.3 * val_iou
+        if score > best_score:
+            best_score = score
             no_improve = 0
             torch.save(model.state_dict(), CKPT_DIR / "best.pth")
-            print(f"  → best model saved (acc={best_acc:.3f})")
+            print(f"  → best model saved (acc={val_acc:.3f}  iou={val_iou:.3f})")
         else:
             no_improve += 1
             if no_improve >= PATIENCE:
@@ -174,7 +179,7 @@ def main() -> None:
                 break
 
     torch.save(model.state_dict(), CKPT_DIR / "last.pth")
-    print(f"Done. Best val acc: {best_acc:.3f}")
+    print(f"Done. Best combined score: {best_score:.3f}")
 
 
 if __name__ == "__main__":

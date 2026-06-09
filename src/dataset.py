@@ -45,6 +45,7 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
         self._df = df.iloc[indices].reset_index(drop=True) if indices is not None else df
         self._images_dir = Path(data_dir) / "images"
         self._transform = train_transform if train else val_transform
+        self._train = train
 
     def __len__(self) -> int:
         return len(self._df)
@@ -58,6 +59,10 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
         img = Image.open(self._images_dir / f"{row['frame']}.png").convert("RGB")
         img_t: torch.Tensor = self._transform(img)
         bbox = torch.tensor([row["cx"], row["cy"], row["w"], row["h"]], dtype=torch.float32)
+        # Random horizontal flip: mirror image and update cx = 1 - cx
+        if self._train and torch.rand(1).item() < 0.5:
+            img_t = img_t.flip(-1)
+            bbox[0] = 1.0 - bbox[0]
         return img_t, self.class_to_idx[row["mob"]], bbox
 
 
