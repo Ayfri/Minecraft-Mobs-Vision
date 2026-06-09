@@ -79,6 +79,18 @@ uv run -m scripts.evaluate
 # Type check
 uv run pyrefly check --output-format=min-text --summary=none
 
+# Run inference on a single image (saves image_pred.png with bbox + label)
+uv run -m scripts.predict path/to/image.png
+
+# Show top-5 predictions instead of default top-3
+uv run -m scripts.predict path/to/image.png --top 5
+
+# Custom output path
+uv run -m scripts.predict path/to/image.png --output result.png
+
+# Use a specific checkpoint
+uv run -m scripts.predict path/to/image.png --checkpoint checkpoints/last.pth
+
 # Lint / format
 uvx ruff check .
 uvx ruff format .
@@ -96,6 +108,7 @@ src/
 scripts/
   train.py        # training loop
   evaluate.py     # test-set evaluation (top-1/5 acc, IoU, per-class breakdown)
+  predict.py      # single-image inference
 data/
   images/         # PNG frames (gitignored)
   frames.csv
