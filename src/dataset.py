@@ -58,7 +58,7 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
         img = Image.open(self._images_dir / f"{row['frame']}.png").convert("RGB")
         img_t: torch.Tensor = self._transform(img)
         bbox = torch.tensor([row["cx"], row["cy"], row["w"], row["h"]], dtype=torch.float32)
-        return img_t, int(row["class_id"]), bbox
+        return img_t, self.class_to_idx[row["mob"]], bbox
 
 
 def make_splits(
