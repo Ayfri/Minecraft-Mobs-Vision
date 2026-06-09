@@ -32,7 +32,9 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "TCH", "ANN"]
-ignore = ["ANN101", "ANN102"]
+
+[tool.pyrefly]
+search_path = ["."]
 
 [dependency-groups]
 dev = [
