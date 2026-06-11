@@ -88,7 +88,7 @@ def _apply_heatmap(img: Image.Image, cam: np.ndarray, alpha: float = 0.5) -> Ima
     b = np.clip(1.5 - np.abs(4 * t - 1), 0, 1)
     jet = (np.stack([r, g, b], axis=-1) * 255).astype(np.uint8)
 
-    heatmap = Image.fromarray(jet, mode="RGB").resize(img.size, Image.BILINEAR)
+    heatmap = Image.fromarray(jet, mode="RGB").resize(img.size, Image.Resampling.BILINEAR)
     return Image.blend(img.convert("RGB"), heatmap, alpha=alpha)
 
 
