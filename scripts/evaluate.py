@@ -6,6 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from src import config
 from src.dataset import MobDataset, make_splits
 from src.metrics import bbox_iou
 from src.model import MobDetector
@@ -73,9 +74,10 @@ def main() -> None:
         num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True,
     )
 
-    model = MobDetector(len(test_ds.classes)).to(DEVICE)
+    model = MobDetector(len(test_ds.classes), backbone=config.BACKBONE).to(DEVICE)
     model.load_state_dict(torch.load(CKPT, map_location=DEVICE, weights_only=True))
     print(f"Checkpoint : {CKPT}")
+    print(f"Backbone   : {config.BACKBONE}  img_size={config.IMG_SIZE}")
     print(f"Test set   : {test_ds}")
     print()
     evaluate(model, test_loader, test_ds.classes)

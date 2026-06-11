@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageFont
 
+from src import config
 from src.model import MobDetector
 from src.transforms import val_transform
 
@@ -45,14 +46,17 @@ def _draw_result(img: Image.Image, cx: float, cy: float, w: float, h: float, lab
 
 
 def _gradcam(model: MobDetector, tensor: torch.Tensor, class_idx: int) -> np.ndarray:
-    """Return a (H, W) float32 GradCAM saliency map in [0, 1]."""
+    """Return a (H, W) float32 GradCAM saliency map in [0, 1].
+
+    Hooks the output of the timm backbone (spatial feature map) rather than
+    indexing into its sub-layers, which varies by architecture.
+    """
     gradients: list[torch.Tensor] = []
     activations: list[torch.Tensor] = []
 
-    target_layer = model.backbone[-1]
-
-    fwd_hook = target_layer.register_forward_hook(lambda _m, _i, o: activations.append(o))
-    bwd_hook = target_layer.register_full_backward_hook(lambda _m, _gi, go: gradients.append(go[0]))
+    # Hook the backbone output directly (works for any timm model)
+    fwd_hook = model.backbone.register_forward_hook(lambda _m, _i, o: activations.append(o))
+    bwd_hook = model.backbone.register_full_backward_hook(lambda _m, _gi, go: gradients.append(go[0]))
 
     logits, _ = model(tensor)
     model.zero_grad()
@@ -99,12 +103,15 @@ def main() -> None:
     parser.add_argument("--top", type=int, default=3, help="Number of top predictions to show.")
     parser.add_argument("--output", type=Path, default=None, help="Output image path (default: <input>_pred.png).")
     parser.add_argument("--heatmap", action="store_true", help="Overlay a GradCAM heatmap on the output image.")
-    parser.add_argument("--heatmap-alpha", type=float, default=0.5, metavar="A", help="Heatmap blend strength in [0, 1] (default: 0.5).")
+    parser.add_argument(
+        "--heatmap-alpha", type=float, default=0.5, metavar="A",
+        help="Heatmap blend strength in [0, 1] (default: 0.5).",
+    )
     args = parser.parse_args()
 
     classes: list[str] = sorted(pd.read_csv(DATA_DIR / "frames.csv")["mob"].unique().tolist())
 
-    model = MobDetector(len(classes)).to(DEVICE)
+    model = MobDetector(len(classes), backbone=config.BACKBONE).to(DEVICE)
     model.load_state_dict(torch.load(args.checkpoint, map_location=DEVICE, weights_only=True))
     model.eval()
 
