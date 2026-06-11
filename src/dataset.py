@@ -13,11 +13,14 @@ from src.transforms import train_transform, val_transform
 def _load_merged(data_dir: str) -> pd.DataFrame:
     """Load and merge frames.csv + boxes.csv, cached per data_dir path."""
     p = Path(data_dir)
-    return (
+    images_dir = p / "images"
+    df = (
         pd.read_csv(p / "frames.csv")
         .merge(pd.read_csv(p / "boxes.csv"), on="frame")
         .reset_index(drop=True)
     )
+    exists = df["frame"].apply(lambda f: (images_dir / f"{f}.png").exists())
+    return df[exists].reset_index(drop=True)
 
 
 class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
