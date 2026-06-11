@@ -8,20 +8,21 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from src import config
 from src.dataset import make_splits
 from src.metrics import bbox_iou, ciou_loss
 from src.model import MobDetector
 
 DATA_DIR        = Path("data")
 CKPT_DIR        = Path("checkpoints")
-BATCH_SIZE      = 96
+BATCH_SIZE      = 64    # 224×384 on 6GB VRAM - reduce to 48 if OOM
 EPOCHS          = 50
 LR              = 1e-3
 WEIGHT_DECAY    = 1e-4
 NUM_WORKERS     = 4
 BBOX_WEIGHT     = 1.0   # CIoU loss is in [0,~2] range, well-balanced with cls loss
-PATIENCE        = 8     # stop early if val accuracy plateaus to avoid overfitting
-WARMUP_EPOCHS   = 5     # freeze backbone, train heads only before full fine-tuning
+PATIENCE        = 8
+WARMUP_EPOCHS   = 3     # freeze backbone; smaller dataset → heads converge faster
 BACKBONE_LR_MUL = 0.1  # backbone LR relative to heads after warmup
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -93,8 +94,10 @@ def eval_epoch(
 def main() -> None:
     CKPT_DIR.mkdir(exist_ok=True)
     torch.backends.cudnn.benchmark = True         # auto-tune conv kernels for fixed input size
-    torch.set_float32_matmul_precision("high")    # TF32 on Ampere/Ada — 2× faster matmuls
+    torch.set_float32_matmul_precision("high")    # TF32 on Ampere/Ada - 2× faster matmuls
     print(f"Device: {DEVICE}")
+    print(f"Backbone: {config.BACKBONE}  img_size={config.IMG_SIZE}  "
+          f"equalize_v={config.EQUALIZE_V}  posterize_bits={config.POSTERIZE_BITS}")
 
     train_ds, val_ds, _ = make_splits(DATA_DIR)
     num_classes = len(train_ds.classes)
@@ -111,17 +114,16 @@ def main() -> None:
         prefetch_factor=2,
     )
 
-    model = MobDetector(num_classes).to(DEVICE, memory_format=torch.channels_last)
+    model = MobDetector(num_classes, backbone=config.BACKBONE).to(DEVICE, memory_format=torch.channels_last)
     try:
         import triton  # noqa: F401
         compiled: nn.Module = torch.compile(model)  # type: ignore[assignment]
     except ImportError:
         compiled = model
 
-    cls_fn = nn.CrossEntropyLoss()
+    cls_fn = nn.CrossEntropyLoss(label_smoothing=0.1)
     scaler = torch.amp.GradScaler()
 
-    # Phase 1 - warmup: freeze backbone, only heads receive gradients
     for p in model.backbone.parameters():
         p.requires_grad = False
     optimizer: torch.optim.Optimizer = torch.optim.AdamW(
@@ -133,13 +135,11 @@ def main() -> None:
     )
     print(f"Phase 1: backbone frozen for {WARMUP_EPOCHS} warmup epochs.")
 
-    # Combined metric weights acc+iou to drive both tasks toward a good checkpoint
     best_score = 0.0
     no_improve  = 0
 
     for epoch in range(1, EPOCHS + 1):
         if epoch == WARMUP_EPOCHS + 1:
-            # Phase 2 - full fine-tune: backbone at lower LR, heads at full LR
             for p in model.backbone.parameters():
                 p.requires_grad = True
             head_params = list(model.cls_head.parameters()) + list(model.bbox_head.parameters())
