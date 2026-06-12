@@ -19,23 +19,30 @@ BATCH_SIZE  = 64
 NUM_WORKERS = 4
 DEVICE      = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Minecraft time buckets (ticks 0-24000)
+_TIME_BUCKETS = [
+    ("Dawn",  0,     2_000),
+    ("Day",   2_000, 12_000),
+    ("Dusk",  12_000, 14_000),
+    ("Night", 14_000, 24_000),
+]
+
 
 @torch.no_grad()
 def evaluate(
     model: MobDetector,
     loader: DataLoader[tuple[torch.Tensor, int, torch.Tensor]],
     classes: list[str],
-    dist_blocks: np.ndarray | None = None,
+    meta_df: pd.DataFrame | None = None,
 ) -> None:
     model.eval()
     top1 = top5 = total = 0
     iou_sum = 0.0
-    per_class_correct: dict[int, int] = {}
-    per_class_total: dict[int, int] = {}
 
-    # Per-sample accumulators for distance analysis
-    all_correct: list[int] = []
-    all_iou: list[float] = []
+    all_label:   list[int]   = []
+    all_pred:    list[int]   = []
+    all_correct: list[int]   = []
+    all_iou:     list[float] = []
 
     for imgs, labels, bboxes in tqdm(loader, desc="eval"):
         imgs, labels, bboxes = imgs.to(DEVICE), labels.to(DEVICE), bboxes.to(DEVICE)
@@ -52,56 +59,163 @@ def evaluate(
         iou_sum += batch_iou.sum().item()
 
         for label, pred, iou in zip(labels.tolist(), top_k[:, 0].tolist(), batch_iou.tolist()):
-            per_class_total[label]   = per_class_total.get(label, 0) + 1
-            per_class_correct[label] = per_class_correct.get(label, 0) + (1 if label == pred else 0)
+            all_label.append(label)
+            all_pred.append(pred)
             all_correct.append(1 if label == pred else 0)
             all_iou.append(iou)
 
-    n = len(loader)
     print(f"Top-1 accuracy : {top1 / total:.4f}")
     print(f"Top-5 accuracy : {top5 / total:.4f}")
     print(f"Mean IoU       : {iou_sum / total:.4f}")
     print()
 
-    # sorted worst-first so the most problematic classes are visible at a glance
-    rows = [
-        (classes[i], per_class_correct.get(i, 0), per_class_total.get(i, 0))
-        for i in range(len(classes))
-        if per_class_total.get(i, 0) > 0
-    ]
-    rows.sort(key=lambda r: r[1] / r[2])
-    print(f"{'Mob':<22} {'Acc':>6}  (correct/total)")
-    print("-" * 42)
-    for name, cor, tot in rows:
-        print(f"  {name:<20} {cor / tot:>6.3f}  ({cor}/{tot})")
+    _print_per_class(all_label, all_pred, all_iou, classes)
+    _print_confusion_matrix(all_label, all_pred, classes, top_n=15)
 
-    if dist_blocks is not None and len(all_correct) == len(dist_blocks):
-        _print_distance_breakdown(dist_blocks, all_correct, all_iou)
+    if meta_df is not None and len(meta_df) == total:
+        results = meta_df.copy().reset_index(drop=True)
+        results["_correct"] = all_correct
+        results["_iou"]     = all_iou
+        results["_pred"]    = all_pred
+
+        if "weather" in results.columns:
+            _print_condition_breakdown(results, "weather", "Weather")
+
+        if "time_ticks" in results.columns:
+            _print_time_breakdown(results)
+
+        _print_bbox_size_breakdown(results)
+
+        if "dist_blocks" in results.columns:
+            _print_distance_breakdown(results)
 
 
-def _print_distance_breakdown(
-    dist_blocks: np.ndarray,
-    correct: list[int],
+def _print_per_class(
+    labels: list[int],
+    preds: list[int],
     ious: list[float],
+    classes: list[str],
 ) -> None:
-    df = pd.DataFrame({
-        "dist": dist_blocks,
-        "correct": correct,
-        "iou": ious,
-    })
-    df["bucket"] = pd.qcut(df["dist"], q=4, precision=1,
-                           labels=["Q1 (close)", "Q2", "Q3", "Q4 (far)"])
+    per_class: dict[int, dict[str, float]] = {}
+    for label, pred, iou in zip(labels, preds, ious):
+        e = per_class.setdefault(label, {"cor": 0, "tot": 0, "iou": 0.0})
+        e["tot"] += 1
+        e["iou"] += iou
+        if label == pred:
+            e["cor"] += 1
+
+    rows = [
+        (classes[i], e["cor"], e["tot"], e["iou"] / e["tot"])
+        for i, e in per_class.items()
+    ]
+    rows.sort(key=lambda r: r[1] / r[2])  # worst accuracy first
+
+    print(f"{'Mob':<22} {'Acc':>6}  {'mIoU':>6}  (correct/total)")
+    print("-" * 54)
+    for name, cor, tot, miou in rows:
+        print(f"  {name:<20} {cor / tot:>6.3f}  {miou:>6.3f}  ({cor}/{tot})")
     print()
-    print(f"{'Distance bucket':<20} {'Range (blocks)':>18}  {'Acc':>6}  {'mIoU':>6}  {'n':>5}")
-    print("-" * 62)
-    for bucket, grp in df.groupby("bucket", observed=True):
-        lo, hi = grp["dist"].min(), grp["dist"].max()
+
+
+def _print_confusion_matrix(
+    labels: list[int],
+    preds: list[int],
+    classes: list[str],
+    top_n: int = 15,
+) -> None:
+    from collections import Counter
+    errors: Counter[tuple[str, str]] = Counter()
+    for label, pred in zip(labels, preds):
+        if label != pred:
+            errors[(classes[label], classes[pred])] += 1
+
+    if not errors:
+        print("No classification errors found.")
+        return
+
+    top = errors.most_common(top_n)
+    print(f"Top-{top_n} most common misclassifications")
+    print(f"  {'True label':<22} {'Predicted as':<22}  {'Count':>6}")
+    print("  " + "-" * 54)
+    for (true_cls, pred_cls), cnt in top:
+        print(f"  {true_cls:<22} {pred_cls:<22}  {cnt:>6}")
+    print()
+
+
+def _print_condition_breakdown(df: pd.DataFrame, col: str, label: str) -> None:
+    print(f"{label} breakdown")
+    print(f"  {col:<20} {'Acc':>6}  {'mIoU':>6}  {'n':>6}")
+    print("  " + "-" * 42)
+    for val, grp in df.groupby(col, observed=True):
         print(
-            f"  {str(bucket):<18} {f'{lo:.0f}–{hi:.0f}':>18}"
-            f"  {grp['correct'].mean():>6.3f}"
-            f"  {grp['iou'].mean():>6.3f}"
-            f"  {len(grp):>5}"
+            f"  {str(val):<20} {grp['_correct'].mean():>6.3f}"
+            f"  {grp['_iou'].mean():>6.3f}  {len(grp):>6}"
         )
+    print()
+
+
+def _print_time_breakdown(df: pd.DataFrame) -> None:
+    def _bucket(t: float) -> str:
+        for name, lo, hi in _TIME_BUCKETS:
+            if lo <= t < hi:
+                return name
+        return "Night"  # 23000-24000 wraps into Night
+
+    df = df.copy()
+    df["_time_bucket"] = df["time_ticks"].apply(_bucket)
+    order = [name for name, *_ in _TIME_BUCKETS]
+    print("Time of day breakdown")
+    print(f"  {'Period':<12} {'Tick range':>16}  {'Acc':>6}  {'mIoU':>6}  {'n':>6}")
+    print("  " + "-" * 52)
+    for name, lo, hi in _TIME_BUCKETS:
+        grp = df[df["_time_bucket"] == name]
+        if grp.empty:
+            continue
+        print(
+            f"  {name:<12} {f'{lo}–{hi}':>16}"
+            f"  {grp['_correct'].mean():>6.3f}"
+            f"  {grp['_iou'].mean():>6.3f}"
+            f"  {len(grp):>6}"
+        )
+    print()
+
+
+def _print_bbox_size_breakdown(df: pd.DataFrame) -> None:
+    if "w" not in df.columns or "h" not in df.columns:
+        return
+    df = df.copy()
+    df["_area"] = df["w"] * df["h"]
+    df["_size"] = pd.qcut(df["_area"], q=3, labels=["Small", "Medium", "Large"])
+    print("Bounding-box size breakdown  (by ground-truth box area)")
+    print(f"  {'Size':<10} {'Area range':>20}  {'Acc':>6}  {'mIoU':>6}  {'n':>6}")
+    print("  " + "-" * 54)
+    for size, grp in df.groupby("_size", observed=True):
+        lo, hi = grp["_area"].min(), grp["_area"].max()
+        print(
+            f"  {str(size):<10} {f'{lo:.4f}–{hi:.4f}':>20}"
+            f"  {grp['_correct'].mean():>6.3f}"
+            f"  {grp['_iou'].mean():>6.3f}"
+            f"  {len(grp):>6}"
+        )
+    print()
+
+
+def _print_distance_breakdown(df: pd.DataFrame) -> None:
+    df = df.copy()
+    df["_bucket"] = pd.qcut(df["dist_blocks"], q=4, precision=1,
+                            labels=["Q1 (close)", "Q2", "Q3", "Q4 (far)"])
+    print("Distance breakdown")
+    print(f"  {'Bucket':<18} {'Range (blocks)':>16}  {'Acc':>6}  {'mIoU':>6}  {'n':>6}")
+    print("  " + "-" * 56)
+    for bucket, grp in df.groupby("_bucket", observed=True):
+        lo, hi = grp["dist_blocks"].min(), grp["dist_blocks"].max()
+        print(
+            f"  {str(bucket):<18} {f'{lo:.0f}–{hi:.0f}':>16}"
+            f"  {grp['_correct'].mean():>6.3f}"
+            f"  {grp['_iou'].mean():>6.3f}"
+            f"  {len(grp):>6}"
+        )
+    print()
 
 
 def main() -> None:
@@ -119,8 +233,8 @@ def main() -> None:
     print(f"Backbone   : {config.BACKBONE}  img_size={config.IMG_SIZE}")
     print(f"Test set   : {test_ds}")
     print()
-    dist_blocks = test_ds._df["dist_blocks"].to_numpy() if "dist_blocks" in test_ds._df.columns else None
-    evaluate(model, test_loader, test_ds.classes, dist_blocks=dist_blocks)
+
+    evaluate(model, test_loader, test_ds.classes, meta_df=test_ds._df)
 
 
 if __name__ == "__main__":
