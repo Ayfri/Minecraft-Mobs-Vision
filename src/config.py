@@ -11,6 +11,10 @@ Backbone options (timm model names, all accept pretrained=True):
 
 BACKBONE: str = "mobilenetv4_conv_small.e2400_r224_in1k"
 
+# File extension of the captured frames ("jpg" or "png").
+# Must match the imageFormat setting used in the Kotlin mod (default: "jpg").
+IMAGE_EXT: str = "jpg"
+
 # Image size fed to the network - (H, W), rectangular to preserve the 16:9
 # source ratio (512×288).  224×384 keeps mobs ~2× larger than the old 160×160
 # square and is divisible by 32 (required by most backbones).
