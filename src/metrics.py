@@ -13,14 +13,18 @@ def _to_corners(boxes: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.
     )
 
 
-def bbox_iou(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Mean IoU for YOLO-format (cx, cy, w, h) boxes. Both tensors: (B, 4)."""
+def bbox_iou(pred: torch.Tensor, target: torch.Tensor, reduction: str = "mean") -> torch.Tensor:
+    """IoU for YOLO-format (cx, cy, w, h) boxes. Both tensors: (B, 4).
+
+    reduction: "mean" → scalar, "none" → per-sample tensor (B,).
+    """
     p_x1, p_y1, p_x2, p_y2 = _to_corners(pred)
     t_x1, t_y1, t_x2, t_y2 = _to_corners(target)
     inter = (torch.min(p_x2, t_x2) - torch.max(p_x1, t_x1)).clamp(0) * \
             (torch.min(p_y2, t_y2) - torch.max(p_y1, t_y1)).clamp(0)
     union = (p_x2 - p_x1) * (p_y2 - p_y1) + (t_x2 - t_x1) * (t_y2 - t_y1) - inter
-    return (inter / union.clamp(min=1e-6)).mean()
+    iou = inter / union.clamp(min=1e-6)
+    return iou.mean() if reduction == "mean" else iou
 
 
 def ciou_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
