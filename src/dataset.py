@@ -19,12 +19,11 @@ def _load_merged(data_dir: str) -> pd.DataFrame:
     """Load frames.csv + boxes.csv, keep the largest box per frame, cached."""
     p = Path(data_dir)
     images_dir = p / "images"
-    df = (
-        pd.read_csv(p / "frames.csv")
-        .merge(pd.read_csv(p / "boxes.csv"), on="frame")
-        .reset_index(drop=True)
-    )
-    exists = df["frame"].apply(lambda f: (images_dir / f"{f}.png").exists())
+    frames = pd.read_csv(p / "frames.csv")
+    # Negative frames have no bounding box and are not used for supervised training.
+    frames = frames[frames["negative"] != 1]
+    df = frames.merge(pd.read_csv(p / "boxes.csv"), on="frame").reset_index(drop=True)
+    exists = df["frame"].apply(lambda f: (images_dir / f"{f}.{config.IMAGE_EXT}").exists())
     df = df[exists].reset_index(drop=True)
 
     # Keep one box per frame: the largest by area.
@@ -48,7 +47,7 @@ def _build_cache(
     fp = np.memmap(str(cache_path), dtype="uint8", mode="w+", shape=(N, H, W, 3))
     static = build_static_transform(img_size, equalize_v=equalize_v)
     for i, frame in enumerate(tqdm(df["frame"], desc="Building cache", leave=False)):
-        img = Image.open(images_dir / f"{frame}.png").convert("RGB")
+        img = Image.open(images_dir / f"{frame}.{config.IMAGE_EXT}").convert("RGB")
         img = static(img)
         fp[i] = np.asarray(img, dtype=np.uint8)
     fp.flush()
@@ -83,9 +82,17 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
         data_dir = Path(data_dir)
         full_df = _load_merged(str(data_dir))
 
-        all_mobs: list[str] = sorted(full_df["mob"].unique().tolist())
-        self.classes = all_mobs
-        self.class_to_idx = {c: i for i, c in enumerate(all_mobs)}
+        # Class ordering from the Kotlin mod's ClassMap (class_id 0–86), not alphabetical.
+        id_to_mob: dict[int, str] = (
+            full_df[["class_id", "mob"]]
+            .drop_duplicates()
+            .sort_values("class_id")
+            .set_index("class_id")["mob"]
+            .to_dict()
+        )
+        num_classes = max(id_to_mob) + 1
+        self.classes = [id_to_mob.get(i, f"class_{i}") for i in range(num_classes)]
+        self.class_to_idx = {mob: cid for cid, mob in id_to_mob.items()}
 
         self._df = full_df.iloc[indices].reset_index(drop=True) if indices is not None else full_df
         self._images_dir = data_dir / "images"
@@ -135,7 +142,7 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
         if self._train and torch.rand(1).item() < 0.5:
             img_t = img_t.flip(-1)
             bbox[0] = 1.0 - bbox[0]
-        return img_t, self.class_to_idx[row["mob"]], bbox
+        return img_t, int(row["class_id"]), bbox
 
 
 def make_splits(
