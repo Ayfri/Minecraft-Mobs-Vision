@@ -16,7 +16,7 @@ BACKBONE: str = "mobilenetv4_conv_small.e2400_r224_in1k"
 IMAGE_EXT: str = "jpg"
 
 # Image size fed to the network - (H, W), rectangular to preserve the 16:9
-# source ratio (512×288).  224×384 keeps mobs ~2× larger than the old 160×160
+# source ratio (512x288).  224x384 keeps mobs ~2x larger than the old 160x160
 # square and is divisible by 32 (required by most backbones).
 IMG_SIZE: tuple[int, int] = (224, 384)
 

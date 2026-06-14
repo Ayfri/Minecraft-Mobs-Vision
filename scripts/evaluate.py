@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
@@ -58,7 +57,7 @@ def evaluate(
         batch_iou = bbox_iou(bbox_pred.float(), bboxes.float(), reduction="none")
         iou_sum += batch_iou.sum().item()
 
-        for label, pred, iou in zip(labels.tolist(), top_k[:, 0].tolist(), batch_iou.tolist()):
+        for label, pred, iou in zip(labels.tolist(), top_k[:, 0].tolist(), batch_iou.tolist(), strict=True):
             all_label.append(label)
             all_pred.append(pred)
             all_correct.append(1 if label == pred else 0)
@@ -97,7 +96,7 @@ def _print_per_class(
     classes: list[str],
 ) -> None:
     per_class: dict[int, dict[str, float]] = {}
-    for label, pred, iou in zip(labels, preds, ious):
+    for label, pred, iou in zip(labels, preds, ious, strict=True):
         e = per_class.setdefault(label, {"cor": 0, "tot": 0, "iou": 0.0})
         e["tot"] += 1
         e["iou"] += iou
@@ -125,7 +124,7 @@ def _print_confusion_matrix(
 ) -> None:
     from collections import Counter
     errors: Counter[tuple[str, str]] = Counter()
-    for label, pred in zip(labels, preds):
+    for label, pred in zip(labels, preds, strict=True):
         if label != pred:
             errors[(classes[label], classes[pred])] += 1
 
@@ -148,7 +147,7 @@ def _print_condition_breakdown(df: pd.DataFrame, col: str, label: str) -> None:
     print("  " + "-" * 42)
     for val, grp in df.groupby(col, observed=True):
         print(
-            f"  {str(val):<20} {grp['_correct'].mean():>6.3f}"
+            f"  {val!s:<20} {grp['_correct'].mean():>6.3f}"
             f"  {grp['_iou'].mean():>6.3f}  {len(grp):>6}"
         )
     print()
@@ -163,7 +162,6 @@ def _print_time_breakdown(df: pd.DataFrame) -> None:
 
     df = df.copy()
     df["_time_bucket"] = df["time_ticks"].apply(_bucket)
-    order = [name for name, *_ in _TIME_BUCKETS]
     print("Time of day breakdown")
     print(f"  {'Period':<12} {'Tick range':>16}  {'Acc':>6}  {'mIoU':>6}  {'n':>6}")
     print("  " + "-" * 52)
@@ -172,7 +170,7 @@ def _print_time_breakdown(df: pd.DataFrame) -> None:
         if grp.empty:
             continue
         print(
-            f"  {name:<12} {f'{lo}–{hi}':>16}"
+            f"  {name:<12} {f'{lo}-{hi}':>16}"
             f"  {grp['_correct'].mean():>6.3f}"
             f"  {grp['_iou'].mean():>6.3f}"
             f"  {len(grp):>6}"
@@ -192,7 +190,7 @@ def _print_bbox_size_breakdown(df: pd.DataFrame) -> None:
     for size, grp in df.groupby("_size", observed=True):
         lo, hi = grp["_area"].min(), grp["_area"].max()
         print(
-            f"  {str(size):<10} {f'{lo:.4f}–{hi:.4f}':>20}"
+            f"  {size!s:<10} {f'{lo:.4f}-{hi:.4f}':>20}"
             f"  {grp['_correct'].mean():>6.3f}"
             f"  {grp['_iou'].mean():>6.3f}"
             f"  {len(grp):>6}"
@@ -210,7 +208,7 @@ def _print_distance_breakdown(df: pd.DataFrame) -> None:
     for bucket, grp in df.groupby("_bucket", observed=True):
         lo, hi = grp["dist_blocks"].min(), grp["dist_blocks"].max()
         print(
-            f"  {str(bucket):<18} {f'{lo:.0f}–{hi:.0f}':>16}"
+            f"  {bucket!s:<18} {f'{lo:.0f}-{hi:.0f}':>16}"
             f"  {grp['_correct'].mean():>6.3f}"
             f"  {grp['_iou'].mean():>6.3f}"
             f"  {len(grp):>6}"

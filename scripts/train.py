@@ -15,7 +15,7 @@ from src.model import MobDetector
 
 DATA_DIR        = Path("data")
 CKPT_DIR        = Path("checkpoints")
-BATCH_SIZE      = 64    # 224×384 on 6GB VRAM - reduce to 48 if OOM
+BATCH_SIZE      = 64    # 224x384 on 6GB VRAM - reduce to 48 if OOM
 EPOCHS          = 50
 LR              = 1e-3
 WEIGHT_DECAY    = 1e-4
@@ -94,7 +94,7 @@ def eval_epoch(
 def main() -> None:
     CKPT_DIR.mkdir(exist_ok=True)
     torch.backends.cudnn.benchmark = True         # auto-tune conv kernels for fixed input size
-    torch.set_float32_matmul_precision("high")    # TF32 on Ampere/Ada - 2× faster matmuls
+    torch.set_float32_matmul_precision("high")    # TF32 on Ampere/Ada - 2x faster matmuls
     print(f"Device: {DEVICE}")
     print(f"Backbone: {config.BACKBONE}  img_size={config.IMG_SIZE}  "
           f"equalize_v={config.EQUALIZE_V}  posterize_bits={config.POSTERIZE_BITS}")

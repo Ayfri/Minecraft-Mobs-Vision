@@ -134,7 +134,7 @@ def main() -> None:
 
     print(f"Bounding box  : cx={cx:.4f}  cy={cy:.4f}  w={w:.4f}  h={h:.4f}")
     print(f"Top-{args.top} predictions:")
-    for prob, idx in zip(top_k.values.tolist(), top_k.indices.tolist()):
+    for prob, idx in zip(top_k.values.tolist(), top_k.indices.tolist(), strict=True):
         print(f"  {classes[idx]:<22} {prob * 100:>6.2f}%")
 
     base = img
