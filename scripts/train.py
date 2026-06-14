@@ -106,7 +106,7 @@ def main() -> None:
         prefetch_factor=t.prefetch_factor,
     )
 
-    model = MobDetector(num_classes).to(DEVICE, memory_format=torch.channels_last)
+    model = MobDetector(num_classes).to(DEVICE).to(memory_format=torch.channels_last)  # type: ignore[no-matching-overload]
     try:
         import triton  # noqa: F401
         compiled: nn.Module = torch.compile(model)  # type: ignore[assignment]
