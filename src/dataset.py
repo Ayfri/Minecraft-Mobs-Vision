@@ -143,11 +143,26 @@ def make_splits(
     train_ratio: float = cfg.data.train_ratio,
     val_ratio: float = cfg.data.val_ratio,
     seed: int = cfg.data.seed,
+    images_per_class: int | None = cfg.data.images_per_class,
 ) -> tuple[MobDataset, MobDataset, MobDataset]:
     """Split the full dataset (one row per frame) into train / val / test."""
-    n = len(_load_merged(str(data_dir)))
-    idx = torch.randperm(n, generator=torch.Generator().manual_seed(seed)).tolist()
+    full_df = _load_merged(str(data_dir))
 
+    if images_per_class is not None:
+        sampled = full_df.groupby("class_id", group_keys=False).apply(
+            lambda g: g.sample(min(len(g), images_per_class), random_state=seed)
+        )
+        idx = torch.randperm(
+            len(sampled), generator=torch.Generator().manual_seed(seed)
+        ).tolist()
+        # Map back to positions in the full (cached) df so memmap indices stay valid.
+        pos = sampled.index.tolist()
+        idx = [pos[i] for i in idx]
+    else:
+        n = len(full_df)
+        idx = torch.randperm(n, generator=torch.Generator().manual_seed(seed)).tolist()
+
+    n = len(idx)
     n_train = int(n * train_ratio)
     n_val = int(n * val_ratio)
 
