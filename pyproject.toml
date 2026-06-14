@@ -32,7 +32,7 @@ target-version = "py313"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "TCH", "ANN"]
+select = ["E", "F", "I", "UP", "TCH", "ANN", "RUF", "B"]
 
 [tool.pyrefly]
 search_path = ["."]
@@ -40,5 +40,5 @@ search_path = ["."]
 [dependency-groups]
 dev = [
     "pyrefly>=1.0.0",
-    "ruff>=0.11.0",
+    "ruff>=0.15.17",
 ]
