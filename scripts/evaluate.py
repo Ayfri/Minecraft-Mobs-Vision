@@ -225,10 +225,10 @@ def main() -> None:
         num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True,
     )
 
-    model = MobDetector(len(test_ds.classes), backbone=config.BACKBONE).to(DEVICE)
+    model = MobDetector(len(test_ds.classes), backbone=config.cfg.model.backbone).to(DEVICE)
     model.load_state_dict(torch.load(CKPT, map_location=DEVICE, weights_only=True))
     print(f"Checkpoint : {CKPT}")
-    print(f"Backbone   : {config.BACKBONE}  img_size={config.IMG_SIZE}")
+    print(f"Backbone   : {config.cfg.model.backbone}  img_size={config.cfg.model.img_size}")
     print(f"Test set   : {test_ds}")
     print()
 
