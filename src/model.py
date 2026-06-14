@@ -2,14 +2,14 @@ import timm
 import torch
 import torch.nn as nn
 
-from src import config
+from src.config import cfg
 
 
 class MobDetector(nn.Module):
     """Multi-task model: mob classification + bounding box regression.
 
     Uses a timm backbone (default: MobileNetV4-small) so the architecture can be
-    swapped by changing ``src.config.BACKBONE`` without touching this file.
+    swapped by changing `backbone` in config.toml without touching this file.
 
     Forward returns (cls_logits, bbox_pred) where:
         cls_logits: (B, num_classes)
@@ -19,18 +19,18 @@ class MobDetector(nn.Module):
     def __init__(
         self,
         num_classes: int,
-        backbone: str = config.BACKBONE,
-        dropout: float = 0.3,
+        backbone: str = cfg.model.backbone,
+        dropout: float = cfg.model.dropout,
     ) -> None:
         super().__init__()
-        # num_classes=0 + global_pool="" → backbone returns the spatial feature map
-        # (B, C, H', W') so GradCAM can hook the backbone output directly.
+        # num_classes=0 + global_pool="" makes the backbone return the spatial feature
+        # map (B, C, H', W') instead of a flat vector, so GradCAM can hook it directly.
         self.backbone: nn.Module = timm.create_model(
             backbone, pretrained=True, num_classes=0, global_pool=""
         )
-        # Derive feat_dim from a single dummy forward pass (works for any backbone)
+        # Dummy forward pass to derive feat_dim without hardcoding per-backbone values.
         with torch.no_grad():
-            dummy = torch.zeros(1, 3, *config.IMG_SIZE)
+            dummy = torch.zeros(1, 3, *cfg.model.img_size)
             feat_map = self.backbone(dummy)
             feat_dim: int = feat_map.shape[1]
 
@@ -39,7 +39,7 @@ class MobDetector(nn.Module):
         self.cls_head = nn.Linear(feat_dim, num_classes)
 
         # 4x4 spatial pool after channel reduction preserves finer location info
-        # than a global pool, with fewer params than a direct linear on H'xW'.
+        # than global pool, with far fewer params than a direct linear on H'xW'.
         _BBOX_POOL = 4
         self.bbox_head = nn.Sequential(
             nn.Conv2d(feat_dim, 256, kernel_size=1, bias=False),
