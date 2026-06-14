@@ -16,6 +16,17 @@ from src.transforms import val_transform
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def _letterbox(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
+    """Pad image to target_w/target_h aspect ratio with black bars (no stretch)."""
+    iw, ih = img.size
+    scale = min(target_w / iw, target_h / ih)
+    nw, nh = int(iw * scale), int(ih * scale)
+    img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    out = Image.new("RGB", (target_w, target_h), (0, 0, 0))
+    out.paste(img, ((target_w - nw) // 2, (target_h - nh) // 2))
+    return out
+
+
 def _load_classes(data_dir: Path) -> list[str]:
     """Build class list in class_id order (matches training), not alphabetical."""
     frames = pd.read_csv(data_dir / "frames.csv")
@@ -129,7 +140,9 @@ def main() -> None:
     model.eval()
 
     img = Image.open(args.image).convert("RGB")
-    tensor: torch.Tensor = val_transform(img).unsqueeze(0).to(DEVICE)
+    target_w, target_h = cfg.model.img_size[1], cfg.model.img_size[0]
+    img_for_model = _letterbox(img, target_w, target_h)
+    tensor: torch.Tensor = val_transform(img_for_model).unsqueeze(0).to(DEVICE)
 
     if args.heatmap:
         cls_logits, bbox_pred = model(tensor)
@@ -150,10 +163,10 @@ def main() -> None:
     for prob, idx in zip(top_k.values.tolist(), top_k.indices.tolist(), strict=True):
         print(f"  {classes[idx]:<22} {prob * 100:>6.2f}%")
 
-    base = img
+    base = img_for_model
     if args.heatmap:
         cam  = _gradcam(model, tensor, best_idx)
-        base = _apply_heatmap(img, cam, alpha=args.heatmap_alpha)
+        base = _apply_heatmap(img_for_model, cam, alpha=args.heatmap_alpha)
 
     out_path = args.output or args.image.with_stem(args.image.stem + "_pred")
     _draw_result(base, cx, cy, w, h, best_label, best_conf).save(out_path)
