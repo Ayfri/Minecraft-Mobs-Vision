@@ -38,8 +38,8 @@ class MobDetector(nn.Module):
         self.drop = nn.Dropout(p=dropout)
         self.cls_head = nn.Linear(feat_dim, num_classes)
 
-        # 4×4 spatial pool after channel reduction preserves finer location info
-        # than a global pool, with fewer params than a direct linear on H'×W'.
+        # 4x4 spatial pool after channel reduction preserves finer location info
+        # than a global pool, with fewer params than a direct linear on H'xW'.
         _BBOX_POOL = 4
         self.bbox_head = nn.Sequential(
             nn.Conv2d(feat_dim, 256, kernel_size=1, bias=False),

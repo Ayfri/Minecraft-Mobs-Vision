@@ -82,7 +82,7 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
         data_dir = Path(data_dir)
         full_df = _load_merged(str(data_dir))
 
-        # Class ordering from the Kotlin mod's ClassMap (class_id 0–86), not alphabetical.
+        # Class ordering from the Kotlin mod's ClassMap (class_id 0-86), not alphabetical.
         id_to_mob: dict[int, str] = (
             full_df[["class_id", "mob"]]
             .drop_duplicates()
@@ -150,7 +150,7 @@ def make_splits(
     train_ratio: float = 0.70,
     val_ratio: float = 0.15,
     seed: int = 42,
-) -> tuple["MobDataset", "MobDataset", "MobDataset"]:
+) -> tuple[MobDataset, MobDataset, MobDataset]:
     """Split the full dataset (one row per frame) into train / val / test."""
     n = len(_load_merged(str(data_dir)))
     idx = torch.randperm(n, generator=torch.Generator().manual_seed(seed)).tolist()
