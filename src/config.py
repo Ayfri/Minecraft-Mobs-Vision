@@ -24,6 +24,7 @@ posterize_bits = 4
 ckpt_dir = "checkpoints"
 data_dir = "data"
 image_ext = "jpg"
+images_per_class = 0
 seed = 42
 train_ratio = 0.70
 val_ratio = 0.15
@@ -69,6 +70,7 @@ class DataConfig:
     ckpt_dir: Path
     data_dir: Path
     image_ext: str
+    images_per_class: int | None
     seed: int
     train_ratio: float
     val_ratio: float
@@ -130,6 +132,7 @@ def _load_config(path: Path = _CONFIG_PATH) -> Config:
             ckpt_dir=Path(d["ckpt_dir"]),
             data_dir=Path(d["data_dir"]),
             image_ext=d["image_ext"],
+            images_per_class=int(d["images_per_class"]) or None,
             seed=int(d["seed"]),
             train_ratio=float(d["train_ratio"]),
             val_ratio=float(d["val_ratio"]),
