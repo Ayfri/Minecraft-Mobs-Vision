@@ -9,13 +9,28 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageFont
 
-from src import config
+from src.config import cfg
 from src.model import MobDetector
 from src.transforms import val_transform
 
-CKPT     = Path("checkpoints/best.pth")
-DATA_DIR = Path("data")
-DEVICE   = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def _load_classes(data_dir: Path) -> list[str]:
+    """Build class list in class_id order (matches training), not alphabetical."""
+    frames = pd.read_csv(data_dir / "frames.csv")
+    frames = frames[frames["negative"] != 1]
+    boxes  = pd.read_csv(data_dir / "boxes.csv")
+    df = frames.merge(boxes, on="frame")
+    id_to_mob: dict[int, str] = (
+        df[["class_id", "mob"]]
+        .drop_duplicates()
+        .sort_values("class_id")
+        .set_index("class_id")["mob"]
+        .to_dict()
+    )
+    num_classes = max(id_to_mob) + 1
+    return [id_to_mob.get(i, f"class_{i}") for i in range(num_classes)]
 
 
 def _draw_result(img: Image.Image, cx: float, cy: float, w: float, h: float, label: str, conf: float) -> Image.Image:
@@ -54,7 +69,6 @@ def _gradcam(model: MobDetector, tensor: torch.Tensor, class_idx: int) -> np.nda
     gradients: list[torch.Tensor] = []
     activations: list[torch.Tensor] = []
 
-    # Hook the backbone output directly (works for any timm model)
     fwd_hook = model.backbone.register_forward_hook(lambda _m, _i, o: activations.append(o))
     bwd_hook = model.backbone.register_full_backward_hook(lambda _m, _gi, go: gradients.append(go[0]))
 
@@ -85,8 +99,7 @@ def _gradcam(model: MobDetector, tensor: torch.Tensor, class_idx: int) -> np.nda
 
 def _apply_heatmap(img: Image.Image, cam: np.ndarray, alpha: float = 0.5) -> Image.Image:
     """Overlay a jet-coloured GradCAM heatmap on the image."""
-    # Jet colormap via numpy (avoid matplotlib dependency)
-    t = cam                       # (H, W) in [0, 1]
+    t = cam
     r = np.clip(1.5 - np.abs(4 * t - 3), 0, 1)
     g = np.clip(1.5 - np.abs(4 * t - 2), 0, 1)
     b = np.clip(1.5 - np.abs(4 * t - 1), 0, 1)
@@ -99,7 +112,7 @@ def _apply_heatmap(img: Image.Image, cam: np.ndarray, alpha: float = 0.5) -> Ima
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("image", type=Path, help="Path to an image file.")
-    parser.add_argument("--checkpoint", type=Path, default=CKPT)
+    parser.add_argument("--checkpoint", type=Path, default=cfg.data.ckpt_dir / "best.pth")
     parser.add_argument("--top", type=int, default=3, help="Number of top predictions to show.")
     parser.add_argument("--output", type=Path, default=None, help="Output image path (default: <input>_pred.png).")
     parser.add_argument("--heatmap", action="store_true", help="Overlay a GradCAM heatmap on the output image.")
@@ -109,9 +122,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    classes: list[str] = sorted(pd.read_csv(DATA_DIR / "frames.csv")["mob"].unique().tolist())
+    classes = _load_classes(cfg.data.data_dir)
 
-    model = MobDetector(len(classes), backbone=config.BACKBONE).to(DEVICE)
+    model = MobDetector(len(classes)).to(DEVICE)
     model.load_state_dict(torch.load(args.checkpoint, map_location=DEVICE, weights_only=True))
     model.eval()
 

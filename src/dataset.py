@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from functools import lru_cache
 from pathlib import Path
 
@@ -10,7 +8,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from src import config
+from src.config import cfg
 from src.transforms import build_runtime_transform, build_static_transform
 
 
@@ -20,15 +18,13 @@ def _load_merged(data_dir: str) -> pd.DataFrame:
     p = Path(data_dir)
     images_dir = p / "images"
     frames = pd.read_csv(p / "frames.csv")
-    # Negative frames have no bounding box and are not used for supervised training.
     frames = frames[frames["negative"] != 1]
     df = frames.merge(pd.read_csv(p / "boxes.csv"), on="frame").reset_index(drop=True)
-    exists = df["frame"].apply(lambda f: (images_dir / f"{f}.{config.IMAGE_EXT}").exists())
+    exists = df["frame"].apply(lambda f: (images_dir / f"{f}.{cfg.data.image_ext}").exists())
     df = df[exists].reset_index(drop=True)
 
-    # Keep one box per frame: the largest by area.
-    # Multiple boxes per frame exist for variation; single-target training
-    # requires an unambiguous ground truth (multi-box detection is future work).
+    # Single-target training requires an unambiguous ground truth; keep the largest box
+    # when multiple annotations exist per frame (multi-box detection is future work).
     df["_area"] = df["w"] * df["h"]
     df = df.loc[df.groupby("frame")["_area"].idxmax()].drop(columns="_area")
     return df.sort_values("frame").reset_index(drop=True)
@@ -47,7 +43,7 @@ def _build_cache(
     fp = np.memmap(str(cache_path), dtype="uint8", mode="w+", shape=(N, H, W, 3))
     static = build_static_transform(img_size, equalize_v=equalize_v)
     for i, frame in enumerate(tqdm(df["frame"], desc="Building cache", leave=False)):
-        img = Image.open(images_dir / f"{frame}.{config.IMAGE_EXT}").convert("RGB")
+        img = Image.open(images_dir / f"{frame}.{cfg.data.image_ext}").convert("RGB")
         img = static(img)
         fp[i] = np.asarray(img, dtype=np.uint8)
     fp.flush()
@@ -76,13 +72,14 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
         data_dir: Path | str,
         indices: list[int] | None = None,
         train: bool = True,
-        img_size: tuple[int, int] = config.IMG_SIZE,
-        equalize_v: bool = config.EQUALIZE_V,
+        img_size: tuple[int, int] = cfg.model.img_size,
+        equalize_v: bool = cfg.augmentation.equalize_v,
     ) -> None:
         data_dir = Path(data_dir)
         full_df = _load_merged(str(data_dir))
 
-        # Class ordering from the Kotlin mod's ClassMap (class_id 0-86), not alphabetical.
+        # class_id order comes from the Kotlin mod's ClassMap, not alphabetical.
+        # predict.py must use this same ordering or class indices won't match the model.
         id_to_mob: dict[int, str] = (
             full_df[["class_id", "mob"]]
             .drop_duplicates()
@@ -99,7 +96,6 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
         self._train = train
         self._runtime = build_runtime_transform(train=train)
 
-        # Memmap cache: keyed by full-dataset size + resolution + equalize flag
         H, W = img_size
         eq_flag = "1" if equalize_v else "0"
         cache_dir = data_dir / "cache"
@@ -115,8 +111,7 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
             self._cache_indices = None
 
         # Store path/shape instead of the memmap object so the dataset pickles
-        # cleanly for Windows spawn workers.  The memmap is opened lazily in
-        # __getitem__ the first time each worker process accesses it.
+        # cleanly for Windows spawn workers; the memmap is opened lazily per worker.
         self._cache_path = cache_path
         self._cache_n = len(full_df)
         self._cache_img_size = img_size
@@ -133,13 +128,11 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
         if self._cache is None:
             self._cache = _open_cache(self._cache_path, self._cache_n, self._cache_img_size)
         row = self._df.iloc[index]
-        # Map local index → global cache row
         cache_idx = self._cache_indices[index] if self._cache_indices is not None else index
         img_uint8 = torch.from_numpy(self._cache[cache_idx].copy()).permute(2, 0, 1)
         img_t: torch.Tensor = self._runtime(img_uint8)
         bbox = torch.tensor([row["cx"], row["cy"], row["w"], row["h"]], dtype=torch.float32)
-        # Random horizontal flip: mirror image and update cx = 1 - cx
-        if self._train and torch.rand(1).item() < 0.5:
+        if self._train and torch.rand(1).item() < cfg.augmentation.hflip_prob:
             img_t = img_t.flip(-1)
             bbox[0] = 1.0 - bbox[0]
         return img_t, int(row["class_id"]), bbox
@@ -147,9 +140,9 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
 
 def make_splits(
     data_dir: Path | str,
-    train_ratio: float = 0.70,
-    val_ratio: float = 0.15,
-    seed: int = 42,
+    train_ratio: float = cfg.data.train_ratio,
+    val_ratio: float = cfg.data.val_ratio,
+    seed: int = cfg.data.seed,
 ) -> tuple[MobDataset, MobDataset, MobDataset]:
     """Split the full dataset (one row per frame) into train / val / test."""
     n = len(_load_merged(str(data_dir)))

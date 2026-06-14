@@ -1,15 +1,13 @@
-from __future__ import annotations
-
 from typing import Any
 
 import torch
 import torchvision.transforms.v2 as T
 from PIL import Image, ImageOps
 
-from src import config
+from src.config import cfg
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
+IMAGENET_STD  = (0.229, 0.224, 0.225)
 
 
 class EqualizeV(T.Transform):
@@ -29,9 +27,9 @@ class EqualizeV(T.Transform):
 
 
 def build_static_transform(
-    img_size: tuple[int, int] = config.IMG_SIZE,
+    img_size: tuple[int, int] = cfg.model.img_size,
     *,
-    equalize_v: bool = config.EQUALIZE_V,
+    equalize_v: bool = cfg.augmentation.equalize_v,
 ) -> T.Compose:
     """PIL pipeline run once per image when building the disk cache.
 
@@ -44,17 +42,27 @@ def build_static_transform(
     return T.Compose(steps)
 
 
-def build_runtime_transform(*, train: bool, posterize_bits: int | None = config.POSTERIZE_BITS) -> T.Compose:
+def build_runtime_transform(
+    *,
+    train: bool,
+    posterize_bits: int | None = cfg.augmentation.effective_posterize_bits,
+) -> T.Compose:
     """Tensor pipeline applied at __getitem__ time (operates on uint8 tensors).
 
     Input: uint8 tensor (3, H, W) from memmap cache.
     Output: float32 tensor (3, H, W) normalised for ImageNet.
     """
+    a = cfg.augmentation
     steps: list[Any] = []
     if train:
         if posterize_bits is not None:
             steps.append(T.RandomPosterize(bits=posterize_bits, p=0.5))
-        steps.append(T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05))
+        steps.append(T.ColorJitter(
+            brightness=a.color_jitter_brightness,
+            contrast=a.color_jitter_contrast,
+            saturation=a.color_jitter_saturation,
+            hue=a.color_jitter_hue,
+        ))
     steps.extend([
         T.ToDtype(torch.float32, scale=True),
         T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
@@ -63,16 +71,17 @@ def build_runtime_transform(*, train: bool, posterize_bits: int | None = config.
 
 
 def build_transforms(
-    img_size: tuple[int, int] = config.IMG_SIZE,
+    img_size: tuple[int, int] = cfg.model.img_size,
     *,
     train: bool,
-    posterize_bits: int | None = config.POSTERIZE_BITS,
-    equalize_v: bool = config.EQUALIZE_V,
+    posterize_bits: int | None = cfg.augmentation.effective_posterize_bits,
+    equalize_v: bool = cfg.augmentation.equalize_v,
 ) -> T.Compose:
     """Full PIL→tensor pipeline for single-image inference (predict.py).
 
     Not used during training (the dataset uses the split static+runtime path).
     """
+    a = cfg.augmentation
     steps: list[Any] = []
     if equalize_v:
         steps.append(EqualizeV())
@@ -80,7 +89,12 @@ def build_transforms(
     if train:
         if posterize_bits is not None:
             steps.append(T.RandomPosterize(bits=posterize_bits, p=0.5))
-        steps.append(T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05))
+        steps.append(T.ColorJitter(
+            brightness=a.color_jitter_brightness,
+            contrast=a.color_jitter_contrast,
+            saturation=a.color_jitter_saturation,
+            hue=a.color_jitter_hue,
+        ))
     steps.extend([
         T.ToImage(),
         T.ToDtype(torch.float32, scale=True),
@@ -90,4 +104,4 @@ def build_transforms(
 
 
 train_transform: T.Compose = build_transforms(train=True)
-val_transform: T.Compose = build_transforms(train=False)
+val_transform: T.Compose   = build_transforms(train=False)

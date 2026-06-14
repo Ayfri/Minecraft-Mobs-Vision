@@ -1,30 +1,18 @@
 """Training script: classification + bounding box regression on Minecraft mobs."""
 
 import time
-from pathlib import Path
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src import config
+from src.config import cfg
 from src.dataset import make_splits
 from src.metrics import bbox_iou, ciou_loss
 from src.model import MobDetector
 
-DATA_DIR        = Path("data")
-CKPT_DIR        = Path("checkpoints")
-BATCH_SIZE      = 64    # 224x384 on 6GB VRAM - reduce to 48 if OOM
-EPOCHS          = 50
-LR              = 1e-3
-WEIGHT_DECAY    = 1e-4
-NUM_WORKERS     = 4
-BBOX_WEIGHT     = 1.0   # CIoU loss is in [0,~2] range, well-balanced with cls loss
-PATIENCE        = 8
-WARMUP_EPOCHS   = 3     # freeze backbone; smaller dataset → heads converge faster
-BACKBONE_LR_MUL = 0.1  # backbone LR relative to heads after warmup
-DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def train_epoch(
@@ -47,7 +35,7 @@ def train_epoch(
             cls_logits, bbox_pred = model(imgs)
             cls_loss  = cls_fn(cls_logits, labels)
             bbox_loss = ciou_loss(bbox_pred.float(), bboxes.float())
-            loss      = cls_loss + BBOX_WEIGHT * bbox_loss
+            loss      = cls_loss + cfg.training.bbox_weight * bbox_loss
 
         scaler.scale(loss).backward()  # type: ignore[union-attr]
         scaler.step(optimizer)
@@ -80,7 +68,7 @@ def eval_epoch(
             cls_logits, bbox_pred = model(imgs)
             cls_loss  = cls_fn(cls_logits, labels)
             bbox_loss = ciou_loss(bbox_pred.float(), bboxes.float())
-            loss      = cls_loss + BBOX_WEIGHT * bbox_loss
+            loss      = cls_loss + cfg.training.bbox_weight * bbox_loss
 
         total   += loss.item()
         correct += (cls_logits.argmax(1) == labels).sum().item()
@@ -92,68 +80,72 @@ def eval_epoch(
 
 
 def main() -> None:
-    CKPT_DIR.mkdir(exist_ok=True)
-    torch.backends.cudnn.benchmark = True         # auto-tune conv kernels for fixed input size
-    torch.set_float32_matmul_precision("high")    # TF32 on Ampere/Ada - 2x faster matmuls
-    print(f"Device: {DEVICE}")
-    print(f"Backbone: {config.BACKBONE}  img_size={config.IMG_SIZE}  "
-          f"equalize_v={config.EQUALIZE_V}  posterize_bits={config.POSTERIZE_BITS}")
+    t = cfg.training
+    d = cfg.data
+    m = cfg.model
 
-    train_ds, val_ds, _ = make_splits(DATA_DIR)
+    cfg.data.ckpt_dir.mkdir(exist_ok=True)
+    torch.backends.cudnn.benchmark = True
+    torch.set_float32_matmul_precision("high")    # TF32 on Ampere/Ada, ~2x faster matmuls
+    print(f"Device: {DEVICE}")
+    print(f"Backbone: {m.backbone}  img_size={m.img_size}  "
+          f"equalize_v={cfg.augmentation.equalize_v}  posterize_bits={cfg.augmentation.posterize_bits}")
+
+    train_ds, val_ds, _ = make_splits(d.data_dir)
     num_classes = len(train_ds.classes)
     print(f"{train_ds} | {val_ds}")
 
     train_loader: DataLoader[tuple[torch.Tensor, int, torch.Tensor]] = DataLoader(
-        train_ds, batch_size=BATCH_SIZE, shuffle=True,
-        num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True,
-        prefetch_factor=2,
+        train_ds, batch_size=t.batch_size, shuffle=True,
+        num_workers=t.num_workers, pin_memory=True, persistent_workers=True,
+        prefetch_factor=t.prefetch_factor,
     )
     val_loader: DataLoader[tuple[torch.Tensor, int, torch.Tensor]] = DataLoader(
-        val_ds, batch_size=BATCH_SIZE * 2, shuffle=False,
-        num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True,
-        prefetch_factor=2,
+        val_ds, batch_size=t.batch_size * 2, shuffle=False,
+        num_workers=t.num_workers, pin_memory=True, persistent_workers=True,
+        prefetch_factor=t.prefetch_factor,
     )
 
-    model = MobDetector(num_classes, backbone=config.BACKBONE).to(DEVICE, memory_format=torch.channels_last)
+    model = MobDetector(num_classes).to(DEVICE, memory_format=torch.channels_last)
     try:
         import triton  # noqa: F401
         compiled: nn.Module = torch.compile(model)  # type: ignore[assignment]
     except ImportError:
         compiled = model
 
-    cls_fn = nn.CrossEntropyLoss(label_smoothing=0.1)
+    cls_fn = nn.CrossEntropyLoss(label_smoothing=t.label_smoothing)
     scaler = torch.amp.GradScaler()
 
     for p in model.backbone.parameters():
         p.requires_grad = False
     optimizer: torch.optim.Optimizer = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
-        lr=LR, weight_decay=WEIGHT_DECAY,
+        lr=t.lr, weight_decay=t.weight_decay,
     )
     scheduler: torch.optim.lr_scheduler.LRScheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=WARMUP_EPOCHS,
+        optimizer, T_max=t.warmup_epochs,
     )
-    print(f"Phase 1: backbone frozen for {WARMUP_EPOCHS} warmup epochs.")
+    print(f"Phase 1: backbone frozen for {t.warmup_epochs} warmup epochs.")
 
     best_score = 0.0
     no_improve  = 0
 
-    for epoch in range(1, EPOCHS + 1):
-        if epoch == WARMUP_EPOCHS + 1:
+    for epoch in range(1, t.epochs + 1):
+        if epoch == t.warmup_epochs + 1:
             for p in model.backbone.parameters():
                 p.requires_grad = True
             head_params = list(model.cls_head.parameters()) + list(model.bbox_head.parameters())
             optimizer = torch.optim.AdamW(
                 [
-                    {"params": model.backbone.parameters(), "lr": LR * BACKBONE_LR_MUL},
-                    {"params": head_params, "lr": LR},
+                    {"params": model.backbone.parameters(), "lr": t.lr * t.backbone_lr_mul},
+                    {"params": head_params, "lr": t.lr},
                 ],
-                weight_decay=WEIGHT_DECAY,
+                weight_decay=t.weight_decay,
             )
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=EPOCHS - WARMUP_EPOCHS,
+                optimizer, T_max=t.epochs - t.warmup_epochs,
             )
-            print(f"Phase 2: backbone unfrozen (lr={LR * BACKBONE_LR_MUL:.1e}), heads lr={LR:.1e}")
+            print(f"Phase 2: backbone unfrozen (lr={t.lr * t.backbone_lr_mul:.1e}), heads lr={t.lr:.1e}")
 
         t0 = time.perf_counter()
         tr_loss, tr_cls, tr_bbox = train_epoch(compiled, train_loader, optimizer, scaler, cls_fn)
@@ -161,7 +153,7 @@ def main() -> None:
         scheduler.step()
 
         print(
-            f"[{epoch:02d}/{EPOCHS}] {time.perf_counter() - t0:.1f}s | "
+            f"[{epoch:02d}/{t.epochs}] {time.perf_counter() - t0:.1f}s | "
             f"train {tr_loss:.4f} (cls {tr_cls:.4f} bbox {tr_bbox:.4f}) | "
             f"val {val_loss:.4f}  acc {val_acc:.3f}  iou {val_iou:.3f}"
         )
@@ -170,15 +162,15 @@ def main() -> None:
         if score > best_score:
             best_score = score
             no_improve = 0
-            torch.save(model.state_dict(), CKPT_DIR / "best.pth")
+            torch.save(model.state_dict(), cfg.data.ckpt_dir / "best.pth")
             print(f"  → best model saved (acc={val_acc:.3f}  iou={val_iou:.3f})")
         else:
             no_improve += 1
-            if no_improve >= PATIENCE:
-                print(f"Early stop: no improvement for {PATIENCE} epochs.")
+            if no_improve >= t.patience:
+                print(f"Early stop: no improvement for {t.patience} epochs.")
                 break
 
-    torch.save(model.state_dict(), CKPT_DIR / "last.pth")
+    torch.save(model.state_dict(), cfg.data.ckpt_dir / "last.pth")
     print(f"Done. Best combined score: {best_score:.3f}")
 
 
