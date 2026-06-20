@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageFont
 
 from src.config import cfg
@@ -72,34 +71,23 @@ def _draw_result(img: Image.Image, cx: float, cy: float, w: float, h: float, lab
 
 
 def _gradcam(model: MobDetector, tensor: torch.Tensor, class_idx: int) -> np.ndarray:
-    """Return a (H, W) float32 GradCAM saliency map in [0, 1].
+    """Return a (H, W) float32 saliency map in [0, 1].
 
-    Hooks the output of the timm backbone (spatial feature map) rather than
-    indexing into its sub-layers, which varies by architecture.
+    Uses gradient × input attribution on the raw pixel tensor rather than
+    hooking a backbone feature layer. GradCAM via feature-map hooks degenerates
+    to spatially uniform weights for architectures with global operations
+    (GRN, LayerNorm2d, …) like ConvNeXtV2: the GAP backward distributes gradients
+    equally over all spatial positions, so only activation magnitudes remain —
+    which are diffuse for architectures with large receptive fields.
+    Grad × input stays spatially sharp for any backbone.
     """
-    gradients: list[torch.Tensor] = []
-    activations: list[torch.Tensor] = []
-
-    fwd_hook = model.backbone.register_forward_hook(lambda _m, _i, o: activations.append(o))
-    bwd_hook = model.backbone.register_full_backward_hook(lambda _m, _gi, go: gradients.append(go[0]))
-
-    logits, _ = model(tensor)
+    inp = tensor.clone().detach().requires_grad_(True)
+    logits, _ = model(inp)
     model.zero_grad()
     logits[0, class_idx].backward()
 
-    fwd_hook.remove()
-    bwd_hook.remove()
-
-    grads = gradients[0]          # (1, C, H', W')
-    acts  = activations[0]        # (1, C, H', W')
-
-    weights = grads.mean(dim=(2, 3), keepdim=True)   # (1, C, 1, 1)
-    cam = (weights * acts).sum(dim=1, keepdim=True)  # (1, 1, H', W')
-    cam = F.relu(cam)
-
-    ih, iw = tensor.shape[2], tensor.shape[3]
-    cam = F.interpolate(cam, size=(ih, iw), mode="bilinear", align_corners=False)
-    cam = cam[0, 0].detach().cpu().numpy()
+    # Sum absolute attribution across RGB channels → (H, W)
+    cam = (inp.grad[0] * inp[0]).abs().sum(dim=0).detach().cpu().numpy()
 
     cam_min, cam_max = cam.min(), cam.max()
     if cam_max > cam_min:
