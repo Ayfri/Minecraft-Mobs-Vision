@@ -42,3 +42,9 @@ dev = [
     "pyrefly>=1.0.0",
     "ruff>=0.15.17",
 ]
+notebook = [
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.11.0",
+    "nbconvert>=7.17.1",
+    "nbformat>=5.10.4",
+]
