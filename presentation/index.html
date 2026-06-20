@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Minecraft Mob Vision · Deep Learning Projet 1</title>
+
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+
+	<style>
+		:root {
+			--accent: #ff8000;
+			--accent2: #4fc3f7;
+			--bg: #16161f;
+			--fg: #e6e6e6;
+			--r-main-font-size: 32px;
+		}
+		.reveal { font-family: 'Inter', sans-serif; color: var(--fg); }
+		.reveal .slides section { text-align: left; }
+		.reveal h1, .reveal h2, .reveal h3 { font-family: 'Inter', sans-serif; font-weight: 800; color: #fff; text-transform: none; letter-spacing: -0.5px; }
+		.reveal h1 { font-size: 2.05em; }
+		.reveal h2 { font-size: 1.28em; margin-bottom: 0.55em; }
+		.reveal h3 { font-size: 1.05em; }
+		.reveal section { background: var(--bg); }
+		.reveal .backgrounds { background: var(--bg); }
+		html.reveal-viewport { background: var(--bg); }
+		.accent { color: var(--accent); }
+		.accent2 { color: var(--accent2); }
+		.dim { color: #9a9aae; }
+		.reveal code, .reveal pre { font-family: 'JetBrains Mono', monospace; }
+		.reveal pre { box-shadow: none; font-size: 0.6em; }
+		.reveal img { border: none; background: none; box-shadow: 0 8px 30px rgba(0,0,0,0.5); border-radius: 6px; }
+		.reveal .slides section.center,
+		.reveal .center { text-align: center; }
+		.reveal table { font-size: 0.85em; }
+		.reveal table td, .reveal table th { border-color: #333; }
+		.reveal a { color: var(--accent2); }
+
+		.metric-row { display: flex; gap: 40px; justify-content: center; margin-top: 30px; }
+		.metric { text-align: center; }
+		.metric .val { font-size: 2.3em; font-weight: 800; color: var(--accent); font-family: 'JetBrains Mono', monospace; line-height: 1; }
+		.metric .lbl { font-size: 0.6em; color: #9a9aae; text-transform: uppercase; letter-spacing: 1px; margin-top: 8px; }
+
+		.tag { display: inline-block; background: rgba(255,128,0,0.15); color: var(--accent);
+			padding: 3px 12px; border-radius: 20px; font-size: 0.55em; font-weight: 600;
+			font-family: 'JetBrains Mono', monospace; margin-bottom: 14px; }
+		.cols { display: flex; gap: 30px; align-items: center; }
+		.cols > div { flex: 1; }
+		.fit { max-height: 600px; }
+		.reveal ul { font-size: 0.84em; line-height: 1.5; }
+		.reveal ul li { margin-bottom: 0.25em; }
+		.reveal p { font-size: 0.88em; line-height: 1.45; }
+		.reveal .cols p { font-size: 0.92em; margin: 0.45em 0; }
+		.reveal .cols ul { font-size: 0.78em; line-height: 1.4; }
+		.reveal .cols ul li { margin-bottom: 0.15em; }
+		.footer { position: fixed; bottom: 12px; right: 18px; font-size: 13px; color: #555;
+			font-family: 'JetBrains Mono', monospace; }
+		.pipe { font-family: 'JetBrains Mono', monospace; font-size: 0.62em; line-height: 1.55;
+			background: #0e0e16; border: 1px solid #2a2a38; border-radius: 8px; padding: 18px 22px; }
+		.pipe .c1 { color: var(--accent); }
+		.pipe .c2 { color: var(--accent2); }
+	</style>
+</head>
+<body>
+<div class="footer">Minecraft Mob Vision · Pierre Roy</div>
+<div class="reveal">
+	<div class="slides">
+
+		<!-- 1. Titre -->
+		<section data-auto-animate>
+			<span class="tag">DEEP LEARNING · PROJET 1 · VISION</span>
+			<h1>Minecraft <span class="accent">Mob Vision</span></h1>
+			<h3 class="dim" style="font-weight:600;">Détection multi-tâches : classifier <span class="accent2">+</span> localiser 87 mobs depuis une capture</h3>
+			<p style="margin-top:40px;" class="dim">Pierre Roy</p>
+			<div class="metric-row" style="margin-top:24px;">
+				<div class="metric"><div class="val">96.3%</div><div class="lbl">Top-1 acc</div></div>
+				<div class="metric"><div class="val">99.1%</div><div class="lbl">Top-5 acc</div></div>
+				<div class="metric"><div class="val">84.1%</div><div class="lbl">IoU moy.</div></div>
+			</div>
+		</section>
+
+		<!-- 2. Problème -->
+		<section>
+			<h2>Le problème</h2>
+			<p class="dim" style="font-size:0.8em; margin-top:-6px;">Rappel pour les non-joueurs : un <i>mob</i> est une créature du jeu (animal ou monstre), une <i>frame</i> est une image du jeu.</p>
+			<p>Depuis une capture Minecraft <span class="accent">512×288</span>, en <b>une seule passe</b>, sortir :</p>
+			<div class="cols" style="margin-top:20px;">
+				<div>
+					<h3 class="accent">1 · Quoi</h3>
+					<p>Lequel des <b>87 mobs</b> est à l'écran.<br><span class="dim">→ tête classification, cross-entropy</span></p>
+				</div>
+				<div>
+					<h3 class="accent2">2 · Où</h3>
+					<p>Bounding box <code>(cx, cy, w, h)</code>, normalisée YOLO.<br><span class="dim">→ tête régression, loss CIoU</span></p>
+				</div>
+			</div>
+			<p style="margin-top:18px;" class="dim">Les deux d'un coup = volet détection (éligible bonus). Un seul CNN partagé, deux têtes.</p>
+		</section>
+
+		<!-- 3. Dataset -->
+		<section>
+			<h2>Un dataset <span class="accent">synthétique</span> auto-labélisé</h2>
+			<div class="cols">
+				<div>
+					<p>J'ai écrit un <b>mod open-source</b> qui fait apparaître chaque mob et tourne automatiquement autour pour le photographier.</p>
+					<ul>
+						<li>Boîtes calculées par <b>projection 3D de la hitbox</b> à l'écran → <span class="accent">labels exacts, zéro annotation manuelle</span></li>
+						<li><b>22 809</b> frames · <b>87</b> classes</li>
+						<li>Équilibré : ~262/classe, seulement <b>1.6×</b> de déséquilibre</li>
+						<li>3 météos × cycle 24h complet × biomes × angles caméra</li>
+					</ul>
+				</div>
+				<div class="center">
+					<img src="assets/class_distribution.png" style="max-height:340px;">
+				</div>
+			</div>
+		</section>
+
+		<!-- 4. Vérité-terrain -->
+		<section class="center">
+			<h2>Vérité-terrain exacte, par projection</h2>
+			<img src="assets/dataset_samples.png" class="fit">
+			<p class="dim" style="font-size:0.7em;">Aucun humain n'a labélisé ces boîtes. La seule ambiguïté restante est la vraie similarité visuelle entre mobs.</p>
+		</section>
+
+		<!-- Caméra orbite -->
+		<section class="center">
+			<h2>La <span class="accent">caméra orbite</span> autour de chaque mob</h2>
+			<img src="assets/camera_orbit.png" style="width:100%;">
+			<p class="dim" style="font-size:0.72em; margin-top:18px;">Même créature, même position : la caméra tourne et photographie à chaque pas d'angle. Des centaines de vues par mob, et la boîte suit toujours. Le mod tourne seul pendant des heures et remplit le dataset.</p>
+		</section>
+
+		<!-- EqualizeV -->
+		<section>
+			<h2>Préprocessing : tuer le <span class="accent">jour/nuit</span></h2>
+			<div class="cols">
+				<div>
+					<p>Le même mob est lumineux à midi, presque noir la nuit. Cette luminosité est un <b>bruit déterministe sans rapport avec l'identité</b>.</p>
+					<p><span class="accent">EqualizeV</span> : égaliser uniquement le <b>canal V en HSV</b>, ce qui neutralise la luminosité et garde l'identité couleur. Appliqué <b>une fois</b> à la construction du cache.</p>
+				</div>
+				<div class="center"><img src="assets/equalize_v.png" style="max-height:370px;"></div>
+			</div>
+		</section>
+
+		<!-- 6. Augmentations -->
+		<section class="center">
+			<h2>Augmentations <span class="accent">légères</span>, qui préservent l'identité</h2>
+			<img src="assets/augmentations.png" style="max-height:230px;">
+			<div class="cols" style="font-size:0.8em; margin-top:20px;">
+				<div><b class="accent">Flip H</b> (p=.5)<br><span class="dim">textures symétriques → 2× données, cx flippé</span></div>
+				<div><b class="accent">ColorJitter</b><br><span class="dim">torches, teinte biome, dérive pack</span></div>
+				<div><b class="accent">Posterize</b> (4b)<br><span class="dim">absorbe les artefacts JPEG</span></div>
+			</div>
+			<p class="dim" style="font-size:0.65em; margin-top:18px;">+ un <b>cache memmap uint8</b> sur disque : décoder les JPEG une fois, lire des tranches brutes chaque epoch → GPU-bound, pas CPU-bound.</p>
+		</section>
+
+		<!-- 7. Architecture -->
+		<section>
+			<h2>Le modèle : <span class="accent">MobDetector</span></h2>
+			<div class="cols">
+				<div>
+					<div class="pipe">
+Input (3, 256, 448)<br>
+&nbsp;&nbsp;│<br>
+&nbsp;&nbsp;▼ <span class="c2">backbone timm</span> (ConvNeXtV2-nano)<br>
+&nbsp;&nbsp;carte de features (B, C, H′, W′)<br>
+&nbsp;&nbsp;├─ <span class="c1">tête cls</span> : GAP→Drop→Linear → <b>87</b><br>
+&nbsp;&nbsp;└─ <span class="c1">tête bbox</span> : Conv 1×1→Pool4→MLP<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ sigmoid → <b>(cx,cy,w,h)</b>
+					</div>
+				</div>
+				<div>
+					<ul>
+						<li><code>global_pool=""</code> → garde la <b>carte spatiale</b> (pour la saliency et la position)</li>
+						<li><b>pool 4×4</b> de la tête bbox : position plus fine qu'un global pool, peu de params</li>
+						<li><b>Interchangeable</b> via <code>config.toml</code> (MobileNetV4 ↔ ConvNeXtV2-nano)</li>
+						<li>~16 M params, une seule passe</li>
+					</ul>
+				</div>
+			</div>
+		</section>
+
+		<!-- 8. Entraînement -->
+		<section>
+			<h2>Stratégie d'entraînement</h2>
+			<div class="cols">
+				<div>
+					<h3 class="accent">Transfer learning 2 phases</h3>
+					<ul>
+						<li><b>Warmup (3 ep) :</b> backbone <b>gelé</b>, on laisse les têtes aléatoires converger d'abord</li>
+						<li><b>Fine-tune :</b> dégeler, backbone à <b>LR 10x plus faible</b> que les têtes, pour adapter sans casser ImageNet</li>
+					</ul>
+				</div>
+				<div>
+					<h3 class="accent2">Loss = CE + CIoU</h3>
+					<ul>
+						<li><b>CIoU</b> &gt; smooth-L1 : optimise la boîte entière + distance centres + ratio d'aspect, robuste à l'échelle</li>
+						<li>Label smoothing 0.1 → pas de sur-confiance sur les sosies</li>
+					</ul>
+				</div>
+			</div>
+			<p class="dim" style="font-size:0.7em; margin-top:18px;">Stack vitesse/robustesse : AMP · <code>torch.compile</code> · CosineAnnealingLR · channels-last · early stop sur <code>0.7·acc + 0.3·IoU</code></p>
+		</section>
+
+		<!-- 9. Comparaison backbones -->
+		<section>
+			<h2>Comparaison des <span class="accent">backbones</span></h2>
+			<div class="cols">
+				<div class="center">
+					<img src="assets/model_comparison.png" style="max-height:420px;">
+					<p class="dim" style="font-size:0.72em; margin-top:10px;">Testé : EfficientNet-B0 → MobileNetV4 small/medium → ConvNeXtV2-nano</p>
+				</div>
+				<div>
+					<p><b class="accent2">Constat honnête :</b> sur le test, <b>m4-medium gagne en brut</b> (Top-1 97.1%, IoU 88.4%) et est plus petit (9.9M).</p>
+					<p>On garde <b class="accent">ConvNeXtV2-nano</b> pour ce que les chiffres ne disent pas :</p>
+					<ul>
+						<li>saliency bien plus <b>nette</b> (slide suivant)</li>
+						<li>meilleure <b>généralisation</b> aux vraies images web</li>
+					</ul>
+				</div>
+			</div>
+		</section>
+
+		<!-- 10. Résultats -->
+		<section data-auto-animate>
+			<h2>Résultats <span class="dim" style="font-size:0.6em;">sur le split de test, 653 images</span></h2>
+			<div class="metric-row" style="margin:40px 0;">
+				<div class="metric"><div class="val">96.3%</div><div class="lbl">Top-1 accuracy</div></div>
+				<div class="metric"><div class="val">99.1%</div><div class="lbl">Top-5 accuracy</div></div>
+				<div class="metric"><div class="val">84.1%</div><div class="lbl">IoU moyenne</div></div>
+			</div>
+			<p class="center dim">ConvNeXtV2-nano · 87 classes · ~16 M params</p>
+		</section>
+
+		<!-- 11. Robustesse -->
+		<section class="center">
+			<h2><span class="accent">Robuste</span> dans toutes les conditions</h2>
+			<img src="assets/breakdowns.png" style="width:100%; max-height:none;">
+			<p class="dim" style="font-size:0.72em;">Accuracy 95–98% quelle que soit la météo, l'heure, la taille de boîte ou la distance. Aucun angle mort.</p>
+		</section>
+
+		<!-- 12. Analyse d'erreurs -->
+		<section>
+			<h2>Analyse d'erreurs : deux types d'<span class="accent">échec</span></h2>
+			<div class="cols" style="align-items:center; gap:40px;">
+				<div style="font-size:0.8em; flex-shrink:0;">
+					<table>
+						<tr><th>Vrai</th><th></th><th>Prédit</th></tr>
+						<tr><td>ghast</td><td class="accent">→</td><td>happy_ghast</td></tr>
+						<tr><td>cow</td><td class="accent">→</td><td>sheep</td></tr>
+						<tr><td>tadpole</td><td class="accent">→</td><td>tropical_fish</td></tr>
+						<tr><td>donkey</td><td class="accent">→</td><td>hoglin</td></tr>
+					</table>
+					<p style="font-size:0.85em; margin-top:18px;"><b>Majorité</b> : mob <b>quasiment invisible</b><br><span class="dim">(dans l'eau, derrière un bloc, trop loin)</span></p>
+					<p style="font-size:0.85em; margin-top:10px;"><b>Reste</b> : vrais sosies visuels<br><span class="dim">Même silhouette ou palette - dur même pour un humain.</span></p>
+				</div>
+				<div class="center" style="flex:1;"><img src="assets/error_analysis.png" style="width:100%; max-height:460px;"></div>
+			</div>
+		</section>
+
+		<!-- 13. Longue traîne -->
+		<section class="center">
+			<h2>La longue traîne</h2>
+			<img src="assets/worst_classes.png" style="max-height:480px;">
+			<p class="dim" style="font-size:0.7em;">Les classes les plus dures sont des mobs aquatiques rares ou quasi invisibles, toujours majoritairement correctes.</p>
+		</section>
+
+		<!-- 14. Interprétabilité -->
+		<section>
+			<h2>Interprétabilité : <span class="accent">que</span> regarde-t-il ?</h2>
+			<div class="center"><img src="assets/gradcam_examples.png" style="max-height:375px;"></div>
+			<p style="font-size:0.72em; margin-top:12px;"><b class="accent2">Grad×Input</b>, pas Grad-CAM classique : les ops globales de ConvNeXtV2 (GRN, LayerNorm2d) + le GAP aplatissent le gradient dans l'espace → heatmaps diffuses. Le grad×input au niveau pixel reste <b>net pour n'importe quel backbone</b>. L'attention est sur le <b>corps du mob</b>, pas le décor.</p>
+		</section>
+
+		<!-- 15. Évolution heatmap -->
+		<section>
+			<h2>L'évolution de la <span class="accent">heatmap</span></h2>
+			<div class="cols">
+				<div class="center"><img src="assets/heatmap_evolution.png" style="max-height:445px;"></div>
+				<div style="font-size:0.86em;">
+					<p>Mêmes inputs (<code>data/history</code>), itérations différentes :</p>
+					<ul>
+						<li><b style="color:#ff5555;">Avant</b> (m4-small + Grad-CAM classique) : <b>grosses zones diffuses</b>, gradients étalés sur la moitié de l'image</li>
+						<li><b class="accent">Maintenant</b> (ConvNeXtV2 + grad×input) : saliency <b>petite, nette, localisée</b> sur le mob</li>
+					</ul>
+					<p class="dim" style="font-size:0.9em;">Pas que cosmétique : le réseau actuel s'appuie sur des régions précises et discriminantes.</p>
+				</div>
+			</div>
+		</section>
+
+		<!-- 16. Prédictions web -->
+		<section class="center">
+			<h2>Prédictions sur de vraies images web</h2>
+			<img src="assets/predictions_grid.png" class="fit">
+			<p class="dim" style="font-size:0.72em;">Screenshots pris sur internet (hors distribution synthétique) → classe + confiance + boîte, de bout en bout.</p>
+		</section>
+
+		<!-- 17. Conclusion -->
+		<section>
+			<h2>Conclusion</h2>
+			<div class="cols">
+				<div>
+					<h3 class="accent">Ce qui a marché</h3>
+					<ul style="font-size:0.82em;">
+						<li><b>Labels synthétiques exacts</b> : le modèle ne combat que la vraie ambiguïté</li>
+						<li><b>Transfer learning</b> sur backbone compact moderne, pas de zoo de détecteurs</li>
+						<li><b>CIoU</b> + <b>EqualizeV</b> = boîtes stables, pas de biais lumière</li>
+						<li>Erreurs interprétables, saliency confirme l'attention</li>
+					</ul>
+				</div>
+				<div>
+					<h3 class="accent2">Pistes</h3>
+					<ul style="font-size:0.82em;">
+						<li>Détection <b>multi-mobs</b> (vraie tête + NMS)</li>
+						<li>Petits mobs aquatiques peu contrastés → résolution + / loss petits objets</li>
+						<li>Dataset de <b>meilleure qualité</b> → avec des images manuelles</li>
+					</ul>
+				</div>
+			</div>
+		</section>
+
+		<!-- 18. Merci -->
+		<section class="center" data-auto-animate>
+			<h1>Merci <span class="accent">·</span> Questions ?</h1>
+			<div class="metric-row" style="margin-top:30px;">
+				<div class="metric"><div class="val">96.3%</div><div class="lbl">Top-1</div></div>
+				<div class="metric"><div class="val">84.1%</div><div class="lbl">IoU</div></div>
+				<div class="metric"><div class="val">87</div><div class="lbl">classes</div></div>
+			</div>
+			<p class="dim" style="margin-top:36px; font-size:0.62em; line-height:1.6;">
+				Code &amp; notebook : <span class="accent2">github.com/Ayfri/Minecraft-Mobs-Vision</span><br>
+				Générateur de dataset : <span class="accent2">github.com/Ayfri/Minecraft-Images-Mobs-Generator</span>
+			</p>
+		</section>
+
+	</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script>
+	Reveal.initialize({
+		hash: true,
+		slideNumber: 'c/t',
+		transition: 'slide',
+		transitionSpeed: 'fast',
+		backgroundTransition: 'fade',
+		width: 1280,
+		height: 720,
+		margin: 0.06,
+		plugins: [RevealHighlight, RevealNotes],
+	});
+</script>
+</body>
+</html>

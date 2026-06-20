@@ -182,6 +182,9 @@ data/
   boxes.csv
   frames.csv
   images/         # PNG frames (gitignored)
+presentation/
+  assets/         # images used in slides
+  index.html      # slides (French)
 scripts/
   evaluate.py     # test-set evaluation (top-1/5 acc, IoU, per-class + condition breakdowns)
   predict.py      # single-image inference with optional GradCAM heatmap
