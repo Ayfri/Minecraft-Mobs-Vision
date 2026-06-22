@@ -193,10 +193,10 @@ Input (3, 256, 448)<br>
 				</div>
 				<div>
 					<ul>
-						<li><code>global_pool=""</code> → garde la <b>carte spatiale</b> (pour la saliency et la position)</li>
-						<li><b>pool 4×4</b> de la tête bbox : position plus fine qu'un global pool, peu de params</li>
-						<li><b>Interchangeable</b> via <code>config.toml</code> (MobileNetV4 ↔ ConvNeXtV2-nano)</li>
-						<li>~16 M params, une seule passe</li>
+						<li>Le backbone <b>conserve la carte spatiale</b> <span class="dim">(on ne l'écrase pas en un vecteur global)</span> → la tête bbox sait <i>où</i> regarder</li>
+						<li>La tête bbox réduit la carte en une <b>grille 4×4</b> avant de prédire les coordonnées <span class="dim">- assez petit pour être rapide, assez grand pour localiser</span></li>
+						<li>Architecture <b>interchangeable</b> : on peut permuter le backbone sans toucher au reste</li>
+						<li>~16 M paramètres · une seule passe</li>
 					</ul>
 				</div>
 			</div>
@@ -209,19 +209,20 @@ Input (3, 256, 448)<br>
 				<div>
 					<h3 class="accent">Transfer learning 2 phases</h3>
 					<ul>
-						<li><b>Warmup (3 ep) :</b> backbone <b>gelé</b>, on laisse les têtes aléatoires converger d'abord</li>
-						<li><b>Fine-tune :</b> dégeler, backbone à <b>LR 10x plus faible</b> que les têtes, pour adapter sans casser ImageNet</li>
+						<li><b>Phase 1 - Warmup (3 epochs) :</b> le backbone (préentraîné) est <b>gelé</b>. Seules les deux têtes s'entraînent, pour ne pas tout écraser dès le début.</li>
+						<li><b>Phase 2 - Fine-tune :</b> on dégèle le backbone mais on l'entraîne <b>10× plus lentement</b> que les têtes - il s'adapte sans perdre ce qu'il a appris sur ImageNet.</li>
 					</ul>
 				</div>
 				<div>
 					<h3 class="accent2">Loss = CE + CIoU</h3>
 					<ul>
-						<li><b>CIoU</b> &gt; smooth-L1 : optimise la boîte entière + distance centres + ratio d'aspect, robuste à l'échelle</li>
-						<li>Label smoothing 0.1 → pas de sur-confiance sur les sosies</li>
+						<li><b>CE</b> <span class="dim">(cross-entropy)</span> : mesure l'erreur de classification.</li>
+						<li><b>CIoU</b> : mesure l'erreur de boîte - pénalise à la fois le mauvais chevauchement, la distance entre centres et le mauvais ratio d'aspect.</li>
+						<li>Label smoothing → le modèle ne peut pas être sûr à 100%, ce qui l'aide sur les mobs similaires.</li>
 					</ul>
 				</div>
 			</div>
-			<p class="dim" style="font-size:0.7em; margin-top:18px;">Stack vitesse/robustesse : AMP · <code>torch.compile</code> · CosineAnnealingLR · channels-last · early stop sur <code>0.7·acc + 0.3·IoU</code></p>
+			<p class="dim" style="font-size:0.7em; margin-top:18px;">Optimisations vitesse : AMP <span style="font-size:0.85em;">(calcul en demi-précision)</span> · <code>torch.compile</code> <span style="font-size:0.85em;">(compilation GPU)</span> · arrêt automatique sur <code>0.7·acc + 0.3·IoU</code></p>
 		</section>
 
 		<!-- 9. Comparaison backbones -->
@@ -236,8 +237,8 @@ Input (3, 256, 448)<br>
 					<p><b class="accent2">Constat honnête :</b> sur le test, <b>m4-medium gagne en brut</b> (Top-1 97.1%, IoU 88.4%) et est plus petit (9.9M).</p>
 					<p>On garde <b class="accent">ConvNeXtV2-nano</b> pour ce que les chiffres ne disent pas :</p>
 					<ul>
-						<li>saliency bien plus <b>nette</b> (slide suivant)</li>
-						<li>meilleure <b>généralisation</b> aux vraies images web</li>
+						<li>zones d'attention bien plus <b>nettes</b> <span class="dim">(le modèle regarde vraiment le mob, pas le décor)</span></li>
+						<li>meilleure <b>généralisation</b> aux images pas dans le dataset</li>
 					</ul>
 				</div>
 			</div>
