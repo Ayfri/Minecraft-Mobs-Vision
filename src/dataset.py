@@ -138,15 +138,55 @@ class MobDataset(Dataset[tuple[torch.Tensor, int, torch.Tensor]]):
         return img_t, int(row["class_id"]), bbox
 
 
+def _grouped_splits(
+    data_dir: Path | str,
+    full_df: pd.DataFrame,
+    train_ratio: float,
+    val_ratio: float,
+    seed: int,
+) -> tuple[MobDataset, MobDataset, MobDataset]:
+    """Split by spawn-block instead of by frame.
+
+    The generator orbits the camera around a single mob fixed at one world position,
+    relocating it every ~10 shots. All frames sharing (class_id, mob_x, mob_y, mob_z)
+    are one orbit batch with the same backdrop; a per-frame split scatters them across
+    train/test, leaking the backdrop. Here each whole block lands in a single split,
+    so the test set shares no spawn with train and the metrics are honest.
+    """
+    groups = full_df.groupby(["class_id", "mob_x", "mob_y", "mob_z"]).indices
+    keys = list(groups.keys())
+    order = torch.randperm(
+        len(keys), generator=torch.Generator().manual_seed(seed)
+    ).tolist()
+    n_train = int(len(keys) * train_ratio)
+    n_val = int(len(keys) * val_ratio)
+
+    def _collect(group_keys: list[int]) -> list[int]:
+        out: list[int] = []
+        for k in group_keys:
+            out.extend(int(i) for i in groups[keys[k]])
+        return out
+
+    return (
+        MobDataset(data_dir, _collect(order[:n_train]), train=True),
+        MobDataset(data_dir, _collect(order[n_train : n_train + n_val]), train=False),
+        MobDataset(data_dir, _collect(order[n_train + n_val :]), train=False),
+    )
+
+
 def make_splits(
     data_dir: Path | str,
     train_ratio: float = cfg.data.train_ratio,
     val_ratio: float = cfg.data.val_ratio,
     seed: int = cfg.data.seed,
     images_per_class: int | None = cfg.data.images_per_class,
+    group_by_spawn: bool = cfg.data.group_by_spawn,
 ) -> tuple[MobDataset, MobDataset, MobDataset]:
     """Split the full dataset (one row per frame) into train / val / test."""
     full_df = _load_merged(str(data_dir))
+
+    if group_by_spawn and images_per_class is None:
+        return _grouped_splits(data_dir, full_df, train_ratio, val_ratio, seed)
 
     if images_per_class is not None:
         sampled = full_df.groupby("class_id", group_keys=False).apply(

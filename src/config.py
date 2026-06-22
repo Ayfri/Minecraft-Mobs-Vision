@@ -23,6 +23,7 @@ posterize_bits = 4
 [data]
 ckpt_dir = "checkpoints"
 data_dir = "data"
+group_by_spawn = false
 image_ext = "jpg"
 images_per_class = 0
 seed = 42
@@ -69,6 +70,7 @@ class AugmentationConfig:
 class DataConfig:
     ckpt_dir: Path
     data_dir: Path
+    group_by_spawn: bool
     image_ext: str
     images_per_class: int | None
     seed: int
@@ -131,6 +133,7 @@ def _load_config(path: Path = _CONFIG_PATH) -> Config:
         data=DataConfig(
             ckpt_dir=Path(d["ckpt_dir"]),
             data_dir=Path(d["data_dir"]),
+            group_by_spawn=bool(d.get("group_by_spawn", False)),
             image_ext=d["image_ext"],
             images_per_class=int(d["images_per_class"]) or None,
             seed=int(d["seed"]),
