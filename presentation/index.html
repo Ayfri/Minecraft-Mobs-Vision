@@ -317,7 +317,35 @@ Input (3, 256, 448)<br>
 			<p class="dim" style="font-size:0.72em;">Screenshots pris sur internet (hors distribution synthétique) → classe + confiance + boîte, de bout en bout.</p>
 		</section>
 
-		<!-- 17. Conclusion -->
+		<!-- 20. Honnêteté : fuite de split -->
+		<section>
+			<span class="tag">RIGUEUR MÉTHODO</span>
+			<h2>Nos 96% sont-ils <span class="accent">honnêtes</span> ?</h2>
+			<div class="cols">
+				<div>
+					<p>Chaque mob est filmé en <b>faisant tourner la caméra autour de lui</b>, immobile à un endroit donné. Toutes ces images se ressemblent : même mob, même décor, <b>seul l'angle change</b>.</p>
+					<p>Notre split range ces images <b>au hasard</b> entre train et test → une image de test a presque toujours une <b>quasi-jumelle</b> dans le train (même scène, autre angle).</p>
+					<ul>
+						<li><b class="accent">99,7%</b> des images de test ont une quasi-jumelle dans le jeu d'entraînement</li>
+						<li>Le 96,3% récompense donc en partie une <b>scène déjà vue</b>, pas que la généralisation → d'où l'écart sur les vraies images web</li>
+					</ul>
+				</div>
+				<div>
+					<p style="font-size:0.7em; color:#9a9aae; margin-bottom:5px;">Split par-frame (actuel)</p>
+					<div style="display:flex; height:44px; border-radius:6px; overflow:hidden; font-family:'JetBrains Mono',monospace; font-weight:700; margin-bottom:20px;">
+						<div style="width:99.7%; background:var(--accent); color:#000; display:flex; align-items:center; justify-content:center; font-size:0.6em;">99,7% ont une quasi-jumelle au train</div>
+						<div style="width:0.3%; background:#3a3a4a;"></div>
+					</div>
+					<p style="font-size:0.7em; color:#9a9aae; margin-bottom:5px;">Split <b>groupé par rafale</b> (<code>group_by_spawn</code>)</p>
+					<div style="display:flex; height:44px; border-radius:6px; overflow:hidden; font-family:'JetBrains Mono',monospace; font-weight:700;">
+						<div style="width:100%; background:#2e7d32; color:#fff; display:flex; align-items:center; justify-content:center; font-size:0.6em;">0 jumelle entre train et test → chiffre honnête</div>
+					</div>
+					<p class="dim" style="font-size:0.68em; margin-top:16px;">On regroupe toutes les images d'une même scène du <b>même côté</b> (train OU test). On a ainsi <b>mesuré</b> le problème au lieu de prendre le 96,3% pour argent comptant.</p>
+				</div>
+			</div>
+		</section>
+
+		<!-- 21. Conclusion -->
 		<section>
 			<h2>Conclusion</h2>
 			<div class="cols">
@@ -341,7 +369,7 @@ Input (3, 256, 448)<br>
 			</div>
 		</section>
 
-		<!-- 18. Merci -->
+		<!-- 22. Merci -->
 		<section class="center" data-auto-animate>
 			<h1>Merci <span class="accent">·</span> Questions ?</h1>
 			<div class="metric-row" style="margin-top:30px;">
