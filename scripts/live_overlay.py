@@ -5,7 +5,7 @@ predicted mob + bounding box live. Two modes:
 
 - overlay (default): a transparent, click-through, always-on-top window drawn
   directly over the game. Launch Minecraft in **borderless/windowed** (exclusive
-  fullscreen captures black), run this, play normally — the label floats on top.
+  fullscreen captures black), run this, play normally - the label floats on top.
 - mirror (--mirror): a normal window that shows the captured region with the box
   drawn on it. More robust, good for screen-sharing a demo.
 
@@ -146,7 +146,7 @@ def _run_overlay(pred: LivePredictor, fps: int, threshold: float) -> None:
 
 def _run_mirror(pred: LivePredictor, fps: int, threshold: float) -> None:
     root = tk.Tk()
-    root.title("MobDetector — live")
+    root.title("MobDetector - live")
     root.attributes("-topmost", True)
     scale = 0.5
     disp_w, disp_h = int(pred.rw * scale), int(pred.rh * scale)

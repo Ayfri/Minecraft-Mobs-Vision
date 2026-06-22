@@ -77,7 +77,7 @@ def _gradcam(model: MobDetector, tensor: torch.Tensor, class_idx: int) -> np.nda
     hooking a backbone feature layer. GradCAM via feature-map hooks degenerates
     to spatially uniform weights for architectures with global operations
     (GRN, LayerNorm2d, …) like ConvNeXtV2: the GAP backward distributes gradients
-    equally over all spatial positions, so only activation magnitudes remain —
+    equally over all spatial positions, so only activation magnitudes remain -—
     which are diffuse for architectures with large receptive fields.
     Grad × input stays spatially sharp for any backbone.
     """
