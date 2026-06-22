@@ -185,7 +185,9 @@ def make_splits(
     """Split the full dataset (one row per frame) into train / val / test."""
     full_df = _load_merged(str(data_dir))
 
-    if group_by_spawn and images_per_class is None:
+    if group_by_spawn:
+        if images_per_class is not None:
+            print("[make_splits] group_by_spawn=True uses all frames; ignoring images_per_class.")
         return _grouped_splits(data_dir, full_df, train_ratio, val_ratio, seed)
 
     if images_per_class is not None:
