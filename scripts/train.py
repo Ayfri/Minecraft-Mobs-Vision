@@ -100,10 +100,13 @@ def main() -> None:
         num_workers=t.num_workers, pin_memory=True, persistent_workers=True,
         prefetch_factor=t.prefetch_factor,
     )
+    # val runs in the main process (num_workers=0): its transform is trivial (no
+    # augmentation), so a single thread hits 0.7s/first-batch. Spawning a second
+    # persistent worker pool while train's pool is alive + CUDA is initialized
+    # deadlocks on Windows, which is what froze the run at "val 0/21".
     val_loader: DataLoader[tuple[torch.Tensor, int, torch.Tensor]] = DataLoader(
         val_ds, batch_size=t.batch_size * 2, shuffle=False,
-        num_workers=t.num_workers, pin_memory=True, persistent_workers=True,
-        prefetch_factor=t.prefetch_factor,
+        num_workers=0, pin_memory=True,
     )
 
     model = MobDetector(num_classes).to(DEVICE).to(memory_format=torch.channels_last)  # type: ignore[no-matching-overload]
