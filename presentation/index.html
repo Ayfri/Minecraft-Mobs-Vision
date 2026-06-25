@@ -231,14 +231,14 @@ Input (3, 256, 448)<br>
 			<div class="cols">
 				<div class="center">
 					<img src="assets/model_comparison.png" style="max-height:420px;">
-					<p class="dim" style="font-size:0.72em; margin-top:10px;">Testé : EfficientNet-B0 → MobileNetV4 small/medium → ConvNeXtV2-nano</p>
+					<p class="dim" style="font-size:0.72em; margin-top:10px;">Testé : EfficientNet-B0 → MobileNetV4 small/medium → ConvNeXtV2-nano · évalués sur le même split groupé</p>
 				</div>
 				<div>
-					<p><b class="accent2">Constat honnête :</b> sur le test, <b>m4-medium gagne en brut</b> (Top-1 97.1%, IoU 88.4%) et est plus petit (9.9M).</p>
-					<p>On garde <b class="accent">ConvNeXtV2-nano</b> pour ce que les chiffres ne disent pas :</p>
+					<p><b class="accent2">À armes égales</b> (même split groupé) : <b class="accent">ConvNeXtV2-nano domine partout</b> - Top-1 93,6 vs 74,5, et surtout IoU <b>86,8 vs 31,9</b>.</p>
+					<p>Le m4-medium paraissait devant sur l’ancien split à fuite ; la fuite retirée (slide 20), il <b>s’effondre</b>. En plus, ce que les chiffres ne montrent pas :</p>
 					<ul>
 						<li>zones d'attention bien plus <b>nettes</b> <span class="dim">(le modèle regarde vraiment le mob, pas le décor)</span></li>
-						<li>meilleure <b>généralisation</b> aux images pas dans le dataset</li>
+						<li>meilleure <b>généralisation</b> aux vraies images web</li>
 					</ul>
 				</div>
 			</div>
@@ -246,7 +246,7 @@ Input (3, 256, 448)<br>
 
 		<!-- 10. Résultats -->
 		<section data-auto-animate>
-			<h2>Résultats <span class="dim" style="font-size:0.6em;">sur le split de test, 653 images</span></h2>
+			<h2>Résultats <span class="dim" style="font-size:0.6em;">sur le split de test groupé, 3 922 images</span></h2>
 			<div class="metric-row" style="margin:40px 0;">
 				<div class="metric"><div class="val">93.6%</div><div class="lbl">Top-1 accuracy</div></div>
 				<div class="metric"><div class="val">98.2%</div><div class="lbl">Top-5 accuracy</div></div>
@@ -259,7 +259,7 @@ Input (3, 256, 448)<br>
 		<section class="center">
 			<h2><span class="accent">Robuste</span> dans toutes les conditions</h2>
 			<img src="assets/breakdowns.png" style="width:100%; max-height:none;">
-			<p class="dim" style="font-size:0.72em;">Accuracy 95–98% quelle que soit la météo, l'heure, la taille de boîte ou la distance. Aucun angle mort.</p>
+			<p class="dim" style="font-size:0.72em;">Accuracy stable dans toutes les conditions, surtout au-dessus de 90% ; elle ne fléchit un peu que sur les très petites boîtes et les mobs lointains. Aucun angle mort.</p>
 		</section>
 
 		<!-- 12. Analyse d'erreurs -->
@@ -321,27 +321,26 @@ Input (3, 256, 448)<br>
 		<!-- 20. Honnêteté : fuite de split -->
 		<section>
 			<span class="tag">RIGUEUR MÉTHODO</span>
-			<h2>Nos 96% sont-ils <span class="accent">honnêtes</span> ?</h2>
+			<h2>Nos 93,6% sont-ils <span class="accent">honnêtes</span> ? <span class="accent2">Oui.</span></h2>
 			<div class="cols">
 				<div>
-					<p>Chaque mob est filmé en <b>faisant tourner la caméra autour de lui</b>, immobile à un endroit donné. Toutes ces images se ressemblent : même mob, même décor, <b>seul l'angle change</b>.</p>
-					<p>Notre split range ces images <b>au hasard</b> entre train et test → une image de test a presque toujours une <b>quasi-jumelle</b> dans le train (même scène, autre angle).</p>
-					<ul>
-						<li><b class="accent">99,7%</b> des images de test ont une quasi-jumelle dans le jeu d'entraînement</li>
-						<li>Le 93,6% récompense donc en partie une <b>scène déjà vue</b>, pas que la généralisation → d'où l'écart sur les vraies images web</li>
+					<p>Chaque mob est filmé en <b>faisant orbiter la caméra</b> autour de lui : on obtient plein d'images quasi identiques, même mob et même décor, <b>seul l'angle change</b>.</p>
+						<ul>
+						<li>Avec un découpage <b>image par image</b>, <b class="accent">99,7%</b> des images de test auraient une quasi-jumelle dans le train → score <b>gonflé</b>.</li>
+						<li>On l'évite en gardant <b>chaque orbite entière du même côté</b> du split → <b>aucune fuite</b>, le 93,6% est une <b>vraie généralisation</b>.</li>
 					</ul>
 				</div>
 				<div>
-					<p style="font-size:0.7em; color:#9a9aae; margin-bottom:5px;">Split par-frame (actuel)</p>
+					<p style="font-size:0.7em; color:#9a9aae; margin-bottom:5px;">Split par-frame naïf (rejeté)</p>
 					<div style="display:flex; height:44px; border-radius:6px; overflow:hidden; font-family:'JetBrains Mono',monospace; font-weight:700; margin-bottom:20px;">
-						<div style="width:99.7%; background:var(--accent); color:#000; display:flex; align-items:center; justify-content:center; font-size:0.6em;">99,7% ont une quasi-jumelle au train</div>
+						<div style="width:99.7%; background:var(--accent); color:#000; display:flex; align-items:center; justify-content:center; font-size:0.6em;">99,7% ont une quasi-jumelle → score gonflé</div>
 						<div style="width:0.3%; background:#3a3a4a;"></div>
 					</div>
-					<p style="font-size:0.7em; color:#9a9aae; margin-bottom:5px;">Split <b>groupé par rafale</b> (<code>group_by_spawn</code>)</p>
+					<p style="font-size:0.7em; color:#9a9aae; margin-bottom:5px;">Split <b>groupé par rafale</b> - <code>group_by_spawn</code> (utilisé)</p>
 					<div style="display:flex; height:44px; border-radius:6px; overflow:hidden; font-family:'JetBrains Mono',monospace; font-weight:700;">
-						<div style="width:100%; background:#2e7d32; color:#fff; display:flex; align-items:center; justify-content:center; font-size:0.6em;">0 jumelle entre train et test → chiffre honnête</div>
+						<div style="width:100%; background:#2e7d32; color:#fff; display:flex; align-items:center; justify-content:center; font-size:0.6em;">0 jumelle entre train et test → 93,6% honnête</div>
 					</div>
-					<p class="dim" style="font-size:0.68em; margin-top:16px;">On regroupe toutes les images d'une même scène du <b>même côté</b> (train OU test). On a ainsi <b>mesuré</b> le problème au lieu de prendre le 93,6% pour argent comptant.</p>
+					<p class="dim" style="font-size:0.68em; margin-top:16px;">Toutes les métriques de cette présentation viennent du split groupé : test = <b>3 922 images</b> qui ne partagent <b>aucun spawn</b> avec l’entraînement.</p>
 				</div>
 			</div>
 		</section>
