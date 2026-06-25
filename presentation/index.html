@@ -77,9 +77,9 @@
 			<h3 class="dim" style="font-weight:600;">Détection multi-tâches : classifier <span class="accent2">+</span> localiser 87 mobs depuis une capture</h3>
 			<p style="margin-top:40px;" class="dim">Pierre Roy</p>
 			<div class="metric-row" style="margin-top:24px;">
-				<div class="metric"><div class="val">96.3%</div><div class="lbl">Top-1 acc</div></div>
-				<div class="metric"><div class="val">99.1%</div><div class="lbl">Top-5 acc</div></div>
-				<div class="metric"><div class="val">84.1%</div><div class="lbl">IoU moy.</div></div>
+				<div class="metric"><div class="val">93.6%</div><div class="lbl">Top-1 acc</div></div>
+				<div class="metric"><div class="val">98.2%</div><div class="lbl">Top-5 acc</div></div>
+				<div class="metric"><div class="val">86.8%</div><div class="lbl">IoU moy.</div></div>
 			</div>
 		</section>
 
@@ -109,8 +109,8 @@
 					<p>J'ai écrit un <b>mod open-source</b> qui fait apparaître chaque mob et tourne automatiquement autour pour le photographier.</p>
 					<ul>
 						<li>Boîtes calculées par <b>projection 3D de la hitbox</b> à l'écran → <span class="accent">labels exacts, zéro annotation manuelle</span></li>
-						<li><b>22 809</b> frames · <b>87</b> classes</li>
-						<li>Équilibré : ~262/classe, seulement <b>1.6×</b> de déséquilibre</li>
+						<li><b>26 010</b> frames · <b>87</b> classes</li>
+						<li>~299/classe, <b>2.8×</b> de déséquilibre (pillager sur-échantillonné)</li>
 						<li>3 météos × cycle 24h complet × biomes × angles caméra</li>
 					</ul>
 				</div>
@@ -248,9 +248,9 @@ Input (3, 256, 448)<br>
 		<section data-auto-animate>
 			<h2>Résultats <span class="dim" style="font-size:0.6em;">sur le split de test, 653 images</span></h2>
 			<div class="metric-row" style="margin:40px 0;">
-				<div class="metric"><div class="val">96.3%</div><div class="lbl">Top-1 accuracy</div></div>
-				<div class="metric"><div class="val">99.1%</div><div class="lbl">Top-5 accuracy</div></div>
-				<div class="metric"><div class="val">84.1%</div><div class="lbl">IoU moyenne</div></div>
+				<div class="metric"><div class="val">93.6%</div><div class="lbl">Top-1 accuracy</div></div>
+				<div class="metric"><div class="val">98.2%</div><div class="lbl">Top-5 accuracy</div></div>
+				<div class="metric"><div class="val">86.8%</div><div class="lbl">IoU moyenne</div></div>
 			</div>
 			<p class="center dim">ConvNeXtV2-nano · 87 classes · ~16 M params</p>
 		</section>
@@ -328,7 +328,7 @@ Input (3, 256, 448)<br>
 					<p>Notre split range ces images <b>au hasard</b> entre train et test → une image de test a presque toujours une <b>quasi-jumelle</b> dans le train (même scène, autre angle).</p>
 					<ul>
 						<li><b class="accent">99,7%</b> des images de test ont une quasi-jumelle dans le jeu d'entraînement</li>
-						<li>Le 96,3% récompense donc en partie une <b>scène déjà vue</b>, pas que la généralisation → d'où l'écart sur les vraies images web</li>
+						<li>Le 93,6% récompense donc en partie une <b>scène déjà vue</b>, pas que la généralisation → d'où l'écart sur les vraies images web</li>
 					</ul>
 				</div>
 				<div>
@@ -341,7 +341,7 @@ Input (3, 256, 448)<br>
 					<div style="display:flex; height:44px; border-radius:6px; overflow:hidden; font-family:'JetBrains Mono',monospace; font-weight:700;">
 						<div style="width:100%; background:#2e7d32; color:#fff; display:flex; align-items:center; justify-content:center; font-size:0.6em;">0 jumelle entre train et test → chiffre honnête</div>
 					</div>
-					<p class="dim" style="font-size:0.68em; margin-top:16px;">On regroupe toutes les images d'une même scène du <b>même côté</b> (train OU test). On a ainsi <b>mesuré</b> le problème au lieu de prendre le 96,3% pour argent comptant.</p>
+					<p class="dim" style="font-size:0.68em; margin-top:16px;">On regroupe toutes les images d'une même scène du <b>même côté</b> (train OU test). On a ainsi <b>mesuré</b> le problème au lieu de prendre le 93,6% pour argent comptant.</p>
 				</div>
 			</div>
 		</section>
@@ -374,8 +374,8 @@ Input (3, 256, 448)<br>
 		<section class="center" data-auto-animate>
 			<h1>Merci <span class="accent">·</span> Questions ?</h1>
 			<div class="metric-row" style="margin-top:30px;">
-				<div class="metric"><div class="val">96.3%</div><div class="lbl">Top-1</div></div>
-				<div class="metric"><div class="val">84.1%</div><div class="lbl">IoU</div></div>
+				<div class="metric"><div class="val">93.6%</div><div class="lbl">Top-1</div></div>
+				<div class="metric"><div class="val">86.8%</div><div class="lbl">IoU</div></div>
 				<div class="metric"><div class="val">87</div><div class="lbl">classes</div></div>
 			</div>
 			<p class="dim" style="margin-top:36px; font-size:0.62em; line-height:1.6;">
