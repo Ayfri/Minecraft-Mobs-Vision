@@ -95,10 +95,12 @@ def main() -> None:
     num_classes = len(train_ds.classes)
     print(f"{train_ds} | {val_ds}")
 
+    # drop_last keeps every train batch at batch_size, so torch.compile sees one
+    # static shape and compiles once instead of recompiling for a partial last batch.
     train_loader: DataLoader[tuple[torch.Tensor, int, torch.Tensor]] = DataLoader(
         train_ds, batch_size=t.batch_size, shuffle=True,
         num_workers=t.num_workers, pin_memory=True, persistent_workers=True,
-        prefetch_factor=t.prefetch_factor,
+        prefetch_factor=t.prefetch_factor, drop_last=True,
     )
     # val runs in the main process (num_workers=0): its transform is trivial (no
     # augmentation), so a single thread hits 0.7s/first-batch. Spawning a second
@@ -113,6 +115,7 @@ def main() -> None:
     try:
         import triton  # noqa: F401
         compiled: nn.Module = torch.compile(model)  # type: ignore[assignment]
+        print("Torch compiled with Triton backend.")
     except ImportError:
         compiled = model
 
