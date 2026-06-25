@@ -12,6 +12,7 @@ dependencies = [
     "pillow>=12.2.0",
     "numpy>=2.4.6",
     "tqdm>=4.67.0",
+    "triton-windows>=3.7,<3.8 ; sys_platform == 'win32'",
 ]
 
 [tool.uv.sources]
